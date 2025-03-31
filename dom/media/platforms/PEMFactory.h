@@ -13,6 +13,28 @@ namespace mozilla {
 
 using PEMCreateEncoderPromise = PlatformEncoderModule::CreateEncoderPromise;
 
+MOZ_DEFINE_ENUM_CLASS_WITH_TOSTRING(EncoderWrapper, (None, ChangeMonitor));
+
+struct CreateEncoderParams final {
+  const EncoderConfig mConfig;
+  EncoderWrapper mWrapper;
+
+  explicit CreateEncoderParams(const EncoderConfig& aConfig)
+      : mConfig(aConfig), mWrapper(EncoderWrapper::None) {}
+  CreateEncoderParams(const EncoderConfig& aConfig,
+                      const EncoderWrapper& aWrapper)
+      : mConfig(aConfig), mWrapper(aWrapper) {}
+  CreateEncoderParams(const CreateEncoderParams& aParams) = default;
+
+  bool IsVideo() const { return mConfig.IsVideo(); }
+  bool IsAudio() const { return mConfig.IsAudio(); }
+  nsCString ToString() const {
+    nsCString str = mConfig.ToString();
+    str.AppendFmt(FMT_STRING("| Wrapper: %s"), EnumValueToString(mWrapper));
+    return str;
+  }
+};
+
 class PEMFactory final {
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(PEMFactory)
@@ -27,18 +49,19 @@ class PEMFactory final {
       const EncoderConfig& aConfig, const RefPtr<TaskQueue>& aTaskQueue);
 
   RefPtr<PlatformEncoderModule::CreateEncoderPromise> CreateEncoderAsync(
-      const EncoderConfig& aConfig, const RefPtr<TaskQueue>& aTaskQueue);
+      const CreateEncoderParams& aParams, const RefPtr<TaskQueue>& aTaskQueue);
 
   bool Supports(const EncoderConfig& aConfig) const;
   bool SupportsCodec(CodecType aCodec) const;
 
  private:
   RefPtr<PlatformEncoderModule::CreateEncoderPromise>
-  CheckAndMaybeCreateEncoder(const EncoderConfig& aConfig, uint32_t aIndex,
+  CheckAndMaybeCreateEncoder(const CreateEncoderParams& aParams,
+                             uint32_t aIndex,
                              const RefPtr<TaskQueue>& aTaskQueue);
 
   RefPtr<PlatformEncoderModule::CreateEncoderPromise> CreateEncoderWithPEM(
-      PlatformEncoderModule* aPEM, const EncoderConfig& aConfig,
+      PlatformEncoderModule* aPEM, const CreateEncoderParams& aParams,
       const RefPtr<TaskQueue>& aTaskQueue);
   virtual ~PEMFactory() = default;
   // Returns the first PEM in our list supporting the codec.

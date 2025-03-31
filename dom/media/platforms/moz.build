@@ -23,6 +23,7 @@ EXPORTS += [
     "wrappers/MediaChangeMonitor.h",
     "wrappers/MediaDataDecoderProxy.h",
     "wrappers/MediaDataEncoderProxy.h",
+    "wrappers/MediaEncoderChangeMonitor.h",
 ]
 
 UNIFIED_SOURCES += [
@@ -42,6 +43,7 @@ UNIFIED_SOURCES += [
     "wrappers/MediaChangeMonitor.cpp",
     "wrappers/MediaDataDecoderProxy.cpp",
     "wrappers/MediaDataEncoderProxy.cpp",
+    "wrappers/MediaEncoderChangeMonitor.cpp",
 ]
 
 DIRS += ["agnostic/bytestreams", "agnostic/eme", "agnostic/gmp", "omx"]

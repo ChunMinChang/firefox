@@ -83,7 +83,10 @@ RefPtr<EncoderAgent::ConfigurePromise> EncoderAgent::Configure(
 
   RefPtr<ConfigurePromise> p = mConfigurePromise.Ensure(__func__);
 
-  mPEMFactory->CreateEncoderAsync(aConfig, dom::GetWebCodecsEncoderTaskQueue())
+  mPEMFactory
+      ->CreateEncoderAsync(
+          CreateEncoderParams(aConfig, EncoderWrapper::ChangeMonitor),
+          dom::GetWebCodecsEncoderTaskQueue())
       ->Then(
           mOwnerThread, __func__,
           [self = RefPtr{this}](RefPtr<MediaDataEncoder>&& aEncoder) {

@@ -28,6 +28,8 @@
 
 #include "GMPEncoderModule.h"
 
+#include "MediaEncoderChangeMonitor.h"
+
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/gfx/gfxVars.h"
 
@@ -96,53 +98,53 @@ already_AddRefed<MediaDataEncoder> PEMFactory::CreateEncoder(
 }
 
 RefPtr<PlatformEncoderModule::CreateEncoderPromise>
-PEMFactory::CreateEncoderAsync(const EncoderConfig& aConfig,
+PEMFactory::CreateEncoderAsync(const CreateEncoderParams& aParams,
                                const RefPtr<TaskQueue>& aTaskQueue) {
-  return CheckAndMaybeCreateEncoder(aConfig, 0, aTaskQueue);
+  return CheckAndMaybeCreateEncoder(aParams, 0, aTaskQueue);
 }
 
 RefPtr<PlatformEncoderModule::CreateEncoderPromise>
-PEMFactory::CheckAndMaybeCreateEncoder(const EncoderConfig& aConfig,
+PEMFactory::CheckAndMaybeCreateEncoder(const CreateEncoderParams& aParams,
                                        uint32_t aIndex,
                                        const RefPtr<TaskQueue>& aTaskQueue) {
   for (uint32_t i = aIndex; i < mCurrentPEMs.Length(); i++) {
-    if (!mCurrentPEMs[i]->Supports(aConfig)) {
+    if (!mCurrentPEMs[i]->Supports(aParams.mConfig)) {
       continue;
     }
-    return CreateEncoderWithPEM(mCurrentPEMs[i], aConfig, aTaskQueue)
+    return CreateEncoderWithPEM(mCurrentPEMs[i], aParams, aTaskQueue)
         ->Then(
             GetCurrentSerialEventTarget(), __func__,
             [](RefPtr<MediaDataEncoder>&& aEncoder) {
               return PlatformEncoderModule::CreateEncoderPromise::
                   CreateAndResolve(std::move(aEncoder), __func__);
             },
-            [self = RefPtr{this}, i, config = aConfig,
+            [self = RefPtr{this}, i, params = aParams,
              aTaskQueue](const MediaResult& aError) mutable {
               // Try the next PEM.
-              return self->CheckAndMaybeCreateEncoder(config, i + 1,
+              return self->CheckAndMaybeCreateEncoder(params, i + 1,
                                                       aTaskQueue);
             });
   }
   return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
       MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
                   nsPrintfCString("Error no encoder found for %s",
-                                  GetCodecTypeString(aConfig.mCodec))
+                                  GetCodecTypeString(aParams.mConfig.mCodec))
                       .get()),
       __func__);
 }
 
 RefPtr<PlatformEncoderModule::CreateEncoderPromise>
 PEMFactory::CreateEncoderWithPEM(PlatformEncoderModule* aPEM,
-                                 const EncoderConfig& aConfig,
+                                 const CreateEncoderParams& aParams,
                                  const RefPtr<TaskQueue>& aTaskQueue) {
   MOZ_ASSERT(aPEM);
   MediaResult result = NS_OK;
 
-  if (aConfig.IsAudio()) {
-    return aPEM->AsyncCreateEncoder(aConfig, aTaskQueue)
+  if (aParams.IsAudio()) {
+    return aPEM->AsyncCreateEncoder(aParams.mConfig, aTaskQueue)
         ->Then(
             GetCurrentSerialEventTarget(), __func__,
-            [config = aConfig](RefPtr<MediaDataEncoder>&& aEncoder) {
+            [](RefPtr<MediaDataEncoder>&& aEncoder) {
               RefPtr<MediaDataEncoder> decoder = std::move(aEncoder);
               return PlatformEncoderModule::CreateEncoderPromise::
                   CreateAndResolve(decoder, __func__);
@@ -153,7 +155,7 @@ PEMFactory::CreateEncoderWithPEM(PlatformEncoderModule* aPEM,
             });
   }
 
-  if (!aConfig.IsVideo()) {
+  if (!aParams.IsVideo()) {
     return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
         MediaResult(
             NS_ERROR_DOM_MEDIA_FATAL_ERR,
@@ -162,7 +164,22 @@ PEMFactory::CreateEncoderWithPEM(PlatformEncoderModule* aPEM,
         __func__);
   }
 
-  return aPEM->AsyncCreateEncoder(aConfig, aTaskQueue);
+  // While AppleVTEncoder can handle certain input format conversions
+  // automatically (e.g., YUV420 limited range to BGRA32), most scenarios
+  // require the input format to match the preset format. Otherwise, the encoder
+  // may return kVTPixelTransferNotSupportedErr or, in worse cases, crash due to
+  // issues in the underlying system (e.g., YUV420 with full color range to
+  // YUV420 with limited color range). To avoid these issues, we use
+  // MediaEncoderChangeMonitor to handle the reconfiguration of the encoder.
+#if defined(XP_MACOSX)
+  if (aParams.mWrapper == EncoderWrapper::ChangeMonitor &&
+      aParams.mConfig.mCodec == CodecType::H264 && aPEM->GetName() &&
+      strstr(aPEM->GetName(), "Apple")) {
+    return MediaEncoderChangeMonitor::Create(aPEM, aParams.mConfig, aTaskQueue);
+  }
+#endif
+
+  return aPEM->AsyncCreateEncoder(aParams.mConfig, aTaskQueue);
 }
 
 bool PEMFactory::Supports(const EncoderConfig& aConfig) const {
