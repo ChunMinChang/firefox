@@ -385,17 +385,7 @@ static Result<OSType, MediaResult> MapPixelFormat(
 }
 
 RefPtr<MediaDataEncoder::InitPromise> AppleVTEncoder::Init() {
-  MOZ_ASSERT(!mSession,
-             "Cannot initialize encoder again without shutting down");
-
-  MediaResult r = InitSession();
-  if (NS_FAILED(r.Code())) {
-    LOGE("%s", r.Description().get());
-    return InitPromise::CreateAndReject(r, __func__);
-  }
-
-  mError = NS_OK;
-  return InitPromise::CreateAndResolve(true, __func__);
+  return InvokeAsync(mTaskQueue, this, __func__, &AppleVTEncoder::ProcessInit);
 }
 
 MediaResult AppleVTEncoder::InitSession() {
@@ -875,6 +865,21 @@ RefPtr<MediaDataEncoder::ReconfigurationPromise> AppleVTEncoder::Reconfigure(
   return InvokeAsync(mTaskQueue, this, __func__,
                      &AppleVTEncoder::ProcessReconfigure,
                      aConfigurationChanges);
+}
+
+RefPtr<MediaDataEncoder::InitPromise> AppleVTEncoder::ProcessInit() {
+  MOZ_ASSERT(!mSession,
+             "Cannot initialize encoder again without shutting down");
+  AssertOnTaskQueue();
+
+  MediaResult r = InitSession();
+  if (NS_FAILED(r.Code())) {
+    LOGE("%s", r.Description().get());
+    return InitPromise::CreateAndReject(r, __func__);
+  }
+
+  mError = NS_OK;
+  return InitPromise::CreateAndResolve(true, __func__);
 }
 
 void AppleVTEncoder::ProcessEncode(const RefPtr<const VideoData>& aSample) {

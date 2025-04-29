@@ -60,6 +60,7 @@ class AppleVTEncoder final : public MediaDataEncoder {
   enum class EncodeResult { Success, EncodeError, FrameDropped, EmptyBuffer };
 
   virtual ~AppleVTEncoder() { MOZ_ASSERT(!mSession); }
+  RefPtr<InitPromise> ProcessInit();
   void ProcessEncode(const RefPtr<const VideoData>& aSample);
   RefPtr<ReconfigurationPromise> ProcessReconfigure(
       const RefPtr<const EncoderConfigurationChangeList>&
@@ -98,7 +99,7 @@ class AppleVTEncoder final : public MediaDataEncoder {
   RefPtr<MediaByteBuffer> mAvcc;  // Stores latest avcC data.
   MediaResult mError;
 
-  // Written by Init() but used only in task queue.
+  // Task queue only.
   AutoCFTypeRef<VTCompressionSessionRef> mSession;
   // Can be accessed on any thread, but only written on during init.
   Atomic<bool> mIsHardwareAccelerated;
