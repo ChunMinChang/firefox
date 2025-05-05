@@ -152,22 +152,22 @@ class EncoderConfig final {
     nsCString ToString() const;
   };
 
-  struct SampleFormat {
+  struct VideoSampleFormat {
     dom::ImageBitmapFormat mPixelFormat;
     VideoColorSpace mColorSpace;
 
-    SampleFormat(const dom::ImageBitmapFormat& aPixelFormat,
-                 const VideoColorSpace& aColorSpace)
+    VideoSampleFormat(const dom::ImageBitmapFormat& aPixelFormat,
+                      const VideoColorSpace& aColorSpace)
         : mPixelFormat(aPixelFormat), mColorSpace(aColorSpace) {}
-    explicit SampleFormat(const dom::ImageBitmapFormat& aPixelFormat)
+    explicit VideoSampleFormat(const dom::ImageBitmapFormat& aPixelFormat)
         : mPixelFormat(aPixelFormat) {}
-    SampleFormat() = default;
+    VideoSampleFormat() = default;
 
-    bool operator==(const SampleFormat& aOther) const {
+    bool operator==(const VideoSampleFormat& aOther) const {
       return mPixelFormat == aOther.mPixelFormat &&
              mColorSpace == aOther.mColorSpace;
     }
-    bool operator!=(const SampleFormat& aOther) const {
+    bool operator!=(const VideoSampleFormat& aOther) const {
       return !(*this == aOther);
     }
 
@@ -191,14 +191,15 @@ class EncoderConfig final {
                                                 : gfx::ColorRange::FULL);
     }
 
-    static Result<SampleFormat, MediaResult> FromImage(layers::Image* aImage);
+    static Result<VideoSampleFormat, MediaResult> FromImage(
+        layers::Image* aImage);
   };
 
   EncoderConfig(const EncoderConfig& aConfig) = default;
 
   // This constructor is used for video encoders
   EncoderConfig(const CodecType aCodecType, gfx::IntSize aSize,
-                const Usage aUsage, const SampleFormat& aFormat,
+                const Usage aUsage, const VideoSampleFormat& aFormat,
                 const uint32_t aFramerate, const size_t aKeyframeInterval,
                 const uint32_t aBitrate, const uint32_t aMinBitrate,
                 const uint32_t aMaxBitrate, const BitrateMode aBitrateMode,
@@ -255,7 +256,7 @@ class EncoderConfig final {
   Usage mUsage{};
   // Video-only
   HardwarePreference mHardwarePreference{};
-  SampleFormat mFormat{};
+  VideoSampleFormat mFormat{};
   ScalabilityMode mScalabilityMode{};
   uint32_t mFramerate{};
   size_t mKeyframeInterval{};

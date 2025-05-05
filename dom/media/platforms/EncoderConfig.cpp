@@ -139,14 +139,14 @@ nsCString EncoderConfig::VideoColorSpace::ToString() const {
           : "none");
 }
 
-nsCString EncoderConfig::SampleFormat::ToString() const {
-  return nsPrintfCString("SampleFormat - [PixelFormat: %s, %s]",
+nsCString EncoderConfig::VideoSampleFormat::ToString() const {
+  return nsPrintfCString("VideoSampleFormat - [PixelFormat: %s, %s]",
                          dom::GetEnumString(mPixelFormat).get(),
                          mColorSpace.ToString().get());
 }
 
-Result<EncoderConfig::SampleFormat, MediaResult>
-EncoderConfig::SampleFormat::FromImage(layers::Image* aImage) {
+Result<EncoderConfig::VideoSampleFormat, MediaResult>
+EncoderConfig::VideoSampleFormat::FromImage(layers::Image* aImage) {
   if (!aImage) {
     return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "No image"));
   }
@@ -162,7 +162,7 @@ EncoderConfig::SampleFormat::FromImage(layers::Image* aImage) {
 
   if (layers::PlanarYCbCrImage* image = aImage->AsPlanarYCbCrImage()) {
     if (const layers::PlanarYCbCrImage::Data* yuv = image->GetData()) {
-      return EncoderConfig::SampleFormat(
+      return EncoderConfig::VideoSampleFormat(
           format.ref(), EncoderConfig::VideoColorSpace(
                             yuv->mColorRange, yuv->mYUVColorSpace,
                             yuv->mColorPrimaries, yuv->mTransferFunction));
@@ -171,7 +171,7 @@ EncoderConfig::SampleFormat::FromImage(layers::Image* aImage) {
                            "failed to get YUV data from a YUV image"));
   }
 
-  return EncoderConfig::SampleFormat(format.ref());
+  return EncoderConfig::VideoSampleFormat(format.ref());
 }
 
 }  // namespace mozilla

@@ -295,7 +295,7 @@ already_AddRefed<MediaDataEncoder> WebrtcMediaDataEncoder::CreateEncoder(
   }
   EncoderConfig config(
       type, {aCodecSettings->width, aCodecSettings->height}, Usage::Realtime,
-      EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420P),
+      EncoderConfig::VideoSampleFormat(dom::ImageBitmapFormat::YUV420P),
       aCodecSettings->maxFramerate, keyframeInterval,
       mBitrateAdjuster.GetTargetBitrateBps(), mMinBitrateBps, mMaxBitrateBps,
       BitrateMode::Variable, HardwarePreference::None, ScalabilityMode::None,

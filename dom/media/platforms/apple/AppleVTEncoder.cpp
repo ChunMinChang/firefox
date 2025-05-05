@@ -273,7 +273,7 @@ bool AppleVTEncoder::IsSettingColorSpaceSupported() const {
 }
 
 MediaResult AppleVTEncoder::SetColorSpace(
-    const EncoderConfig::SampleFormat& aFormat) {
+    const EncoderConfig::VideoSampleFormat& aFormat) {
   MOZ_ASSERT(mSession);
 
   if (!aFormat.IsYUV()) {
@@ -338,7 +338,7 @@ MediaResult AppleVTEncoder::SetColorSpace(
 }
 
 static Result<OSType, MediaResult> MapPixelFormat(
-    const EncoderConfig::SampleFormat& aFormat) {
+    const EncoderConfig::VideoSampleFormat& aFormat) {
   if (!aFormat.mColorSpace.mRange) {
     LOGW("Map the pixel format with guessed color range");
   }
@@ -1024,13 +1024,13 @@ static void ReleaseImage(void* aImageGrip, const void* aDataPtr,
 CVPixelBufferRef AppleVTEncoder::CreateCVPixelBuffer(Image* aSource) {
   AssertOnTaskQueue();
 
-  auto sfr = EncoderConfig::SampleFormat::FromImage(aSource);
+  auto sfr = EncoderConfig::VideoSampleFormat::FromImage(aSource);
   if (sfr.isErr()) {
     MediaResult err = sfr.unwrapErr();
     LOGE("%s", err.Description().get());
     return nullptr;
   }
-  const EncoderConfig::SampleFormat sf = sfr.unwrap();
+  const EncoderConfig::VideoSampleFormat sf = sfr.unwrap();
 
   auto pfr = MapPixelFormat(sf);
   if (pfr.isErr()) {
