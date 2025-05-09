@@ -345,6 +345,9 @@ static Result<OSType, MediaResult> MapPixelFormat(
   switch (aFormat) {
     case dom::ImageBitmapFormat::YUV444P:
       return kCVPixelFormatType_444YpCbCr8;
+    case dom::ImageBitmapFormat::YUV422P:
+      return isFullRange ? kCVPixelFormatType_422YpCbCr8FullRange
+                         : kCVPixelFormatType_422YpCbCr8_yuvs;
     case dom::ImageBitmapFormat::YUV420P:
       return isFullRange ? kCVPixelFormatType_420YpCbCr8PlanarFullRange
                          : kCVPixelFormatType_420YpCbCr8Planar;
