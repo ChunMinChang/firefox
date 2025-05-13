@@ -139,6 +139,57 @@ nsCString EncoderConfig::VideoColorSpace::ToString() const {
           : "none");
 }
 
+/* static */
+nsTArray<EncoderConfig::VideoColorSpace>
+EncoderConfig::VideoColorSpace::GetAllColorSpaces() {
+  using RangeInt = std::underlying_type_t<gfx::ColorRange>;
+  using YUVInt = std::underlying_type_t<gfx::YUVColorSpace>;
+  using ColorSpace2Int = std::underlying_type_t<gfx::ColorSpace2>;
+  using TransferFunctionInt = std::underlying_type_t<gfx::TransferFunction>;
+
+  nsTArray<VideoColorSpace> colorSpaces;
+
+  nsTArray<Maybe<gfx::ColorRange>> ranges = {Nothing()};
+  for (RangeInt i = static_cast<RangeInt>(gfx::ColorRange::_First);
+       i <= static_cast<RangeInt>(gfx::ColorRange::_Last); ++i) {
+    ranges.AppendElement(Some(static_cast<gfx::ColorRange>(i)));
+  }
+
+  nsTArray<Maybe<gfx::YUVColorSpace>> matrices = {Nothing()};
+  for (YUVInt i = static_cast<YUVInt>(gfx::YUVColorSpace::_First);
+       i <= static_cast<YUVInt>(gfx::YUVColorSpace::_Last); ++i) {
+    matrices.AppendElement(Some(static_cast<gfx::YUVColorSpace>(i)));
+  }
+
+  nsTArray<Maybe<gfx::ColorSpace2>> primaries = {Nothing()};
+  for (ColorSpace2Int i = static_cast<ColorSpace2Int>(gfx::ColorSpace2::_First);
+       i <= static_cast<ColorSpace2Int>(gfx::ColorSpace2::_Last); ++i) {
+    primaries.AppendElement(Some(static_cast<gfx::ColorSpace2>(i)));
+  }
+
+  nsTArray<Maybe<gfx::TransferFunction>> transferFunctions = {Nothing()};
+  for (TransferFunctionInt i =
+           static_cast<TransferFunctionInt>(gfx::TransferFunction::_First);
+       i <= static_cast<TransferFunctionInt>(gfx::TransferFunction::_Last);
+       ++i) {
+    transferFunctions.AppendElement(
+        Some(static_cast<gfx::TransferFunction>(i)));
+  }
+
+  for (const auto& range : ranges) {
+    for (const auto& matrix : matrices) {
+      for (const auto& primary : primaries) {
+        for (const auto& transferFunction : transferFunctions) {
+          colorSpaces.AppendElement(
+              VideoColorSpace(range, matrix, primary, transferFunction));
+        }
+      }
+    }
+  }
+
+  return colorSpaces;
+}
+
 nsCString EncoderConfig::VideoSampleFormat::ToString() const {
   return nsPrintfCString("VideoSampleFormat - [PixelFormat: %s, %s]",
                          dom::GetEnumString(mPixelFormat).get(),
@@ -172,6 +223,22 @@ EncoderConfig::VideoSampleFormat::FromImage(layers::Image* aImage) {
   }
 
   return EncoderConfig::VideoSampleFormat(format.ref());
+}
+
+/* static */
+nsTArray<EncoderConfig::VideoSampleFormat>
+EncoderConfig::VideoSampleFormat::GenerateFormats(
+    const nsTArray<dom::ImageBitmapFormat>& aFormats,
+    const nsTArray<EncoderConfig::VideoColorSpace>& aColorSpaces) {
+  nsTArray<VideoSampleFormat> formats;
+
+  for (const auto& format : aFormats) {
+    for (const auto& colorSpace : aColorSpaces) {
+      formats.AppendElement(VideoSampleFormat(format, colorSpace));
+    }
+  }
+
+  return formats;
 }
 
 }  // namespace mozilla

@@ -83,6 +83,8 @@ class WMFMediaDataEncoder final : public MediaDataEncoder {
 
   bool IsAnnexB() const;
 
+  nsTArray<EncoderConfig::VideoSampleFormat> GetSupportedFormats() const;
+
   void AssertOnTaskQueue() { MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn()); }
 
   EncoderConfig mConfig;

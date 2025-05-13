@@ -85,6 +85,7 @@ class AndroidDataEncoder final : public MediaDataEncoder {
                                          const int32_t aOffset,
                                          const int32_t aSize,
                                          const bool aIsKeyFrame);
+  nsTArray<EncoderConfig::VideoSampleFormat> GetSupportedFormats() const;
   void Error(const MediaResult& aError);
 
   void AssertOnTaskQueue() const {

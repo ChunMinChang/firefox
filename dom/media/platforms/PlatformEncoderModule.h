@@ -69,7 +69,45 @@ class MediaDataEncoder {
     return aCodec > CodecType::_BeginAudio_ && aCodec < CodecType::_EndAudio_;
   }
 
-  using InitPromise = MozPromise<bool, MediaResult, /* IsExclusive = */ true>;
+  class AudioInitResult;
+  class VideoInitResult;
+  class InitResult {
+   public:
+    virtual ~InitResult() = default;
+
+    virtual AudioInitResult* AsAudioInitResult() { return nullptr; }
+    virtual VideoInitResult* AsVideoInitResult() { return nullptr; }
+  };
+
+  class AudioInitResult : public InitResult {
+   public:
+    explicit AudioInitResult(uint32_t aEncoderSampleRate)
+        : mEncoderSampleRate(aEncoderSampleRate) {}
+    uint32_t GetEncoderSampleRate() const { return mEncoderSampleRate; }
+    AudioInitResult* AsAudioInitResult() override { return this; }
+
+   private:
+    uint32_t mEncoderSampleRate;
+  };
+
+  class VideoInitResult : public InitResult {
+   public:
+    using Format = EncoderConfig::VideoSampleFormat;
+
+    explicit VideoInitResult(nsTArray<Format>&& aVideoFormats)
+        : mCompatibleFormats(std::move(aVideoFormats)) {}
+
+    VideoInitResult* AsVideoInitResult() override { return this; }
+    const nsTArray<Format>& GetCompatibleFormats() const {
+      return mCompatibleFormats;
+    }
+
+   private:
+    nsTArray<Format> mCompatibleFormats;
+  };
+
+  using InitPromise = MozPromise<UniquePtr<InitResult>, MediaResult,
+                                 /* IsExclusive = */ true>;
   using EncodedData = nsTArray<RefPtr<MediaRawData>>;
   using EncodePromise =
       MozPromise<EncodedData, MediaResult, /* IsExclusive = */ true>;

@@ -47,6 +47,7 @@ class FFmpegVideoEncoder<LIBAV_VER> : public FFmpegDataEncoder<LIBAV_VER> {
       AVPacket* aPacket) override;
   Result<already_AddRefed<MediaByteBuffer>, MediaResult> GetExtraData(
       AVPacket* aPacket) override;
+  nsTArray<EncoderConfig::VideoSampleFormat> GetSupportedFormats() const;
   struct SVCSettings {
     nsTArray<uint8_t> mTemporalLayerIds;
     // A key-value pair for av_opt_set.

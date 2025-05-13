@@ -483,6 +483,8 @@ void AudioEncoder::EncoderConfigToDecoderConfig(
   // constraints. e.g. FFmpegAudioEncoder can encode any sample-rate, but if the
   // codec is Opus, then it will resample the audio one of the specific rates
   // supported by the encoder.
+  // TODO (Bug XXX): Retrieve these values from the result of
+  // MediaDataEncoder::Init() instead.
   if (aRawData->mConfig) {
     sampleRate = aRawData->mConfig->mSampleRate;
     channelCount = aRawData->mConfig->mNumberOfChannels;

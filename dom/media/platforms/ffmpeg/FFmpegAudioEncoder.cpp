@@ -28,7 +28,10 @@ RefPtr<MediaDataEncoder::InitPromise> FFmpegAudioEncoder<LIBAV_VER>::Init() {
       FFMPEGV_LOG("%s", r.Description().get());
       return InitPromise::CreateAndReject(r, __func__);
     }
-    return InitPromise::CreateAndResolve(true, __func__);
+    // TODO (Bug XXX): Provide the actual settings of the underlying encoder
+    // that differ from the requested configuration in mConfig.
+    return InitPromise::CreateAndResolve(
+        MakeUnique<AudioInitResult>(self->mConfig.mSampleRate), __func__);
   });
 }
 
@@ -475,6 +478,9 @@ FFmpegAudioEncoder<LIBAV_VER>::ToMediaRawData(AVPacket* aPacket) {
   }
 
   if (mPacketsDelivered++ == 0) {
+    // TODO (Bug XXX): These values should be supplied to users through
+    // MediaDataEncoder::Init() as they remain constant after the encoder is
+    // initialized.
     // Attach the config (including any channel / samplerate modification to fit
     // the encoder requirements), if needed.
     data->mConfig = MakeUnique<EncoderConfig>(mConfig);

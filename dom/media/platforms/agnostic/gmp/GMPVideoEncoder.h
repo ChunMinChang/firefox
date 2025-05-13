@@ -65,6 +65,8 @@ class GMPVideoEncoder final : public MediaDataEncoder,
 
   void Teardown(const MediaResult& aResult, StaticString aCallSite);
 
+  nsTArray<EncoderConfig::VideoSampleFormat> GetSupportedFormats() const;
+
   const EncoderConfig mConfig;
   nsCOMPtr<mozIGeckoMediaPluginService> mMPS;
   GMPVideoEncoderProxy* mGMP = nullptr;

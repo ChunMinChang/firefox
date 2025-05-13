@@ -167,6 +167,34 @@ bool AppleVTEncoder::SetProfileLevel(H264_PROFILE aValue) {
   return mgr.Set(kVTCompressionPropertyKey_ProfileLevel, profileLevel) == noErr;
 }
 
+nsTArray<EncoderConfig::VideoSampleFormat> AppleVTEncoder::GetSupportedFormats()
+    const {
+  MOZ_ASSERT(mSession,
+             "GetSupportedFormats called before Init or after Shutdown");
+
+  // The RGBA32 and BGRA32 formats can be used interchangeably for underlying
+  // processing.
+  nsTArray<dom::ImageBitmapFormat> pixelfmts;
+  if (mConfig.mFormat.IsRGB32()) {
+    pixelfmts.AppendElement(dom::ImageBitmapFormat::RGBA32);
+    pixelfmts.AppendElement(dom::ImageBitmapFormat::BGRA32);
+  } else {
+    // Currently, the RGB32 formats might be accepted by the underlying encoder
+    // configured with YUV formats in certain cases, but Bug 1955153 will change
+    // this behavior.
+    pixelfmts.AppendElement(mConfig.mFormat.mPixelFormat);
+  }
+  // Color spaces settings for non-YUV formats will be ignored.
+  nsTArray<EncoderConfig::VideoColorSpace> colorSpaces;
+  if (mConfig.mFormat.IsYUV()) {
+    colorSpaces.AppendElement(mConfig.mFormat.mColorSpace);
+  } else {
+    colorSpaces = EncoderConfig::VideoColorSpace::GetAllColorSpaces();
+  }
+  return EncoderConfig::VideoSampleFormat::GenerateFormats(pixelfmts,
+                                                           colorSpaces);
+}
+
 static Maybe<CFStringRef> MapColorPrimaries(
     const gfx::ColorSpace2& aPrimaries) {
   switch (aPrimaries) {
@@ -388,21 +416,23 @@ RefPtr<MediaDataEncoder::InitPromise> AppleVTEncoder::Init() {
   return InvokeAsync(mTaskQueue, this, __func__, &AppleVTEncoder::ProcessInit);
 }
 
-MediaResult AppleVTEncoder::InitSession() {
+Result<nsTArray<EncoderConfig::VideoSampleFormat>, MediaResult>
+AppleVTEncoder::InitSession() {
   MOZ_ASSERT(!mSession);
 
   auto errorExit = MakeScopeExit([&] { InvalidateSessionIfNeeded(); });
 
   if (mConfig.mSize.width == 0 || mConfig.mSize.height == 0) {
-    return MediaResult(
+    return Err(MediaResult(
         NS_ERROR_ILLEGAL_VALUE,
         RESULT_DETAIL("Neither width (%d) nor height (%d) can be zero",
-                      mConfig.mSize.width, mConfig.mSize.height));
+                      mConfig.mSize.width, mConfig.mSize.height)));
   }
 
   if (mConfig.mScalabilityMode != ScalabilityMode::None && !OSSupportsSVC()) {
-    return MediaResult(NS_ERROR_DOM_MEDIA_NOT_SUPPORTED_ERR,
-                       "SVC only supported on macOS 11.3 and more recent"_ns);
+    return Err(
+        MediaResult(NS_ERROR_DOM_MEDIA_NOT_SUPPORTED_ERR,
+                    "SVC only supported on macOS 11.3 and more recent"_ns));
   }
 
   bool lowLatencyRateControl =
@@ -422,23 +452,23 @@ MediaResult AppleVTEncoder::InitSession() {
       kCFAllocatorDefault, &FrameCallback, this /* outputCallbackRefCon */,
       mSession.Receive());
   if (status != noErr) {
-    return MediaResult(
+    return Err(MediaResult(
         NS_ERROR_DOM_MEDIA_FATAL_ERR,
-        RESULT_DETAIL("fail to create encoder session. Error: %d", status));
+        RESULT_DETAIL("fail to create encoder session. Error: %d", status)));
   }
 
   SessionPropertyManager mgr(mSession);
 
   status = mgr.Set(kVTCompressionPropertyKey_AllowFrameReordering, false);
   if (status != noErr) {
-    return MediaResult(
+    return Err(MediaResult(
         NS_ERROR_DOM_MEDIA_FATAL_ERR,
-        RESULT_DETAIL("Couldn't disable bframes. Error: %d", status));
+        RESULT_DETAIL("Couldn't disable bframes. Error: %d", status)));
   }
 
   if (mConfig.mUsage == Usage::Realtime && !SetRealtime(true)) {
-    return MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
-                       "fail to configure real-time"_ns);
+    return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                           "fail to configure real-time"_ns));
   }
 
   if (mConfig.mBitrate) {
@@ -450,8 +480,8 @@ MediaResult AppleVTEncoder::InitSession() {
     }
     bool rv = SetBitrateAndMode(mConfig.mBitrateMode, mConfig.mBitrate);
     if (!rv) {
-      return MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
-                         "fail to configurate bitrate"_ns);
+      return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                             "fail to configurate bitrate"_ns));
     }
   }
 
@@ -465,8 +495,9 @@ MediaResult AppleVTEncoder::InitSession() {
         case ScalabilityMode::L1T3:
           // Not supported in hw on macOS, but is accepted and errors out when
           // encoding. Reject the configuration now.
-          return MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
-                             RESULT_DETAIL("macOS only support L1T2 h264 SVC"));
+          return Err(
+              MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                          RESULT_DETAIL("macOS only support L1T2 h264 SVC")));
         default:
           MOZ_ASSERT_UNREACHABLE("Unhandled value");
       }
@@ -474,14 +505,14 @@ MediaResult AppleVTEncoder::InitSession() {
       status = mgr.Set(kVTCompressionPropertyKey_BaseLayerFrameRateFraction,
                        baseLayerFPSRatio);
       if (status != noErr) {
-        return MediaResult(
+        return Err(MediaResult(
             NS_ERROR_DOM_MEDIA_FATAL_ERR,
             RESULT_DETAIL("fail to configure SVC (base ratio: %f). Error: %d",
-                          baseLayerFPSRatio, status));
+                          baseLayerFPSRatio, status)));
       }
     } else {
-      return MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
-                         "macOS version too old to enable SVC"_ns);
+      return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                             "macOS version too old to enable SVC"_ns));
     }
   }
 
@@ -492,19 +523,20 @@ MediaResult AppleVTEncoder::InitSession() {
 
   status = mgr.Set(kVTCompressionPropertyKey_MaxKeyFrameInterval, interval);
   if (status != noErr) {
-    return MediaResult(
+    return Err(MediaResult(
         NS_ERROR_DOM_MEDIA_FATAL_ERR,
         RESULT_DETAIL("fail to configurate keyframe interval: %" PRId64
                       ". Error: %d",
-                      interval, status));
+                      interval, status)));
   }
 
   if (mConfig.mCodecSpecific) {
     const H264Specific& specific = mConfig.mCodecSpecific->as<H264Specific>();
     if (!SetProfileLevel(specific.mProfile)) {
-      return MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
-                         RESULT_DETAIL("fail to configurate profile level:%d",
-                                       int(specific.mProfile)));
+      return Err(
+          MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                      RESULT_DETAIL("fail to configurate profile level:%d",
+                                    int(specific.mProfile))));
     }
   }
 
@@ -517,7 +549,7 @@ MediaResult AppleVTEncoder::InitSession() {
   } else {
     MOZ_ASSERT(NS_FAILED(colorSpaceResult.Code()));
     LOGE("%s", colorSpaceResult.Description().get());
-    return colorSpaceResult;
+    return Err(colorSpaceResult);
   }
 
   bool isUsingHW = false;
@@ -528,7 +560,8 @@ MediaResult AppleVTEncoder::InitSession() {
   LOGD("Using hw acceleration: %s", mIsHardwareAccelerated ? "yes" : "no");
 
   errorExit.release();
-  return NS_OK;
+  return GetSupportedFormats();
+  ;
 }
 
 void AppleVTEncoder::InvalidateSessionIfNeeded() {
@@ -872,14 +905,16 @@ RefPtr<MediaDataEncoder::InitPromise> AppleVTEncoder::ProcessInit() {
              "Cannot initialize encoder again without shutting down");
   AssertOnTaskQueue();
 
-  MediaResult r = InitSession();
-  if (NS_FAILED(r.Code())) {
-    LOGE("%s", r.Description().get());
-    return InitPromise::CreateAndReject(r, __func__);
+  auto r = InitSession();
+  if (r.isErr()) {
+    MediaResult e = r.unwrapErr();
+    LOGE("%s", e.Description().get());
+    return InitPromise::CreateAndReject(e, __func__);
   }
 
   mError = NS_OK;
-  return InitPromise::CreateAndResolve(true, __func__);
+  return InitPromise::CreateAndResolve(MakeUnique<VideoInitResult>(r.unwrap()),
+                                       __func__);
 }
 
 void AppleVTEncoder::ProcessEncode(const RefPtr<const VideoData>& aSample) {

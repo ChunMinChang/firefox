@@ -72,7 +72,7 @@ class AppleVTEncoder final : public MediaDataEncoder {
   RefPtr<ShutdownPromise> ProcessShutdown();
 
   void InvalidateSessionIfNeeded();
-  MediaResult InitSession();
+  Result<nsTArray<EncoderConfig::VideoSampleFormat>, MediaResult> InitSession();
   CFDictionaryRef BuildSourceImageBufferAttributes(OSType aPixelFormat);
   CVPixelBufferRef CreateCVPixelBuffer(layers::Image* aSource);
   bool WriteExtraData(MediaRawData* aDst, CMSampleBufferRef aSrc,
@@ -86,6 +86,7 @@ class AppleVTEncoder final : public MediaDataEncoder {
   bool SetProfileLevel(H264_PROFILE aValue);
   bool IsSettingColorSpaceSupported() const;
   MediaResult SetColorSpace(const EncoderConfig::VideoSampleFormat& aFormat);
+  nsTArray<EncoderConfig::VideoSampleFormat> GetSupportedFormats() const;
 
   void AssertOnTaskQueue() { MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn()); }
 

@@ -124,8 +124,9 @@ RefPtr<InitPromise> WMFMediaDataEncoder::ProcessInit() {
 
   mEncoder = std::move(encoder);
   FillConfigData();
-  return InitPromise::CreateAndResolve(TrackInfo::TrackType::kVideoTrack,
-                                       __func__);
+
+  return InitPromise::CreateAndResolve(
+      MakeUnique<VideoInitResult>(GetSupportedFormats()), __func__);
 }
 
 HRESULT WMFMediaDataEncoder::InitMFTEncoder(RefPtr<MFTEncoder>& aEncoder) {
@@ -415,6 +416,24 @@ bool WMFMediaDataEncoder::WriteFrameData(RefPtr<MediaRawData>& aDest,
 
   PodCopy(writer->Data(), aSrc.Data(), aSrc.Length());
   return true;
+}
+
+nsTArray<EncoderConfig::VideoSampleFormat>
+WMFMediaDataEncoder::GetSupportedFormats() const {
+  AssertOnTaskQueue();
+  MOZ_ASSERT(mEncoder,
+             "GetSupportedFormats() called before Init or after Shutdown");
+
+  // Images in the formats listed below will be converted to NV12 before being
+  // passed to the encoder.
+  nsTArray<dom::ImageBitmapFormat> pixelfmts = {
+      dom::ImageBitmapFormat::RGBA32, dom::ImageBitmapFormat::BGRA32,
+      dom::ImageBitmapFormat::YUV420P};
+  // We accpet all the color spaces since we will ignore them currently.
+  nsTArray<EncoderConfig::VideoColorSpace> colorSpaces =
+      EncoderConfig::VideoColorSpace::GetAllColorSpaces();
+  return EncoderConfig::VideoSampleFormat::GenerateFormats(pixelfmts,
+                                                           colorSpaces);
 }
 
 }  // namespace mozilla

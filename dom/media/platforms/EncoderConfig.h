@@ -132,6 +132,14 @@ class EncoderConfig final {
     Maybe<gfx::TransferFunction> mTransferFunction;
 
     VideoColorSpace() = default;
+    VideoColorSpace(Maybe<gfx::ColorRange> aColorRange,
+                    Maybe<gfx::YUVColorSpace> aMatrix,
+                    Maybe<gfx::ColorSpace2> aPrimaries,
+                    Maybe<gfx::TransferFunction> aTransferFunction)
+        : mRange(aColorRange),
+          mMatrix(aMatrix),
+          mPrimaries(aPrimaries),
+          mTransferFunction(aTransferFunction) {}
     VideoColorSpace(const gfx::ColorRange& aColorRange,
                     const gfx::YUVColorSpace& aMatrix,
                     const gfx::ColorSpace2& aPrimaries,
@@ -150,6 +158,7 @@ class EncoderConfig final {
       return !(*this == aOther);
     }
     nsCString ToString() const;
+    static nsTArray<VideoColorSpace> GetAllColorSpaces();
   };
 
   struct VideoSampleFormat {
@@ -193,6 +202,9 @@ class EncoderConfig final {
 
     static Result<VideoSampleFormat, MediaResult> FromImage(
         layers::Image* aImage);
+    static nsTArray<VideoSampleFormat> GenerateFormats(
+        const nsTArray<dom::ImageBitmapFormat>& aFormats,
+        const nsTArray<VideoColorSpace>& aColorSpaces);
   };
 
   EncoderConfig(const EncoderConfig& aConfig) = default;

@@ -287,7 +287,8 @@ RefPtr<MediaDataEncoder::InitPromise> FFmpegVideoEncoder<LIBAV_VER>::Init() {
       FFMPEGV_LOG("%s", r.Description().get());
       return InitPromise::CreateAndReject(r, __func__);
     }
-    return InitPromise::CreateAndResolve(true, __func__);
+    return InitPromise::CreateAndResolve(
+        MakeUnique<VideoInitResult>(self->GetSupportedFormats()), __func__);
   });
 }
 
@@ -772,6 +773,29 @@ FFmpegVideoEncoder<LIBAV_VER>::GetExtraData(AVPacket* aPacket) {
                        ppsData);
   MOZ_ASSERT(extraData);
   return extraData.forget();
+}
+
+nsTArray<EncoderConfig::VideoSampleFormat>
+FFmpegVideoEncoder<LIBAV_VER>::GetSupportedFormats() const {
+  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
+  MOZ_ASSERT(mCodecContext,
+             "GetSupportedFormats() called before Init or after Shutdown");
+
+  // Images in the formats listed below will be converted to I420 before being
+  // passed to the encoder.
+  nsTArray<dom::ImageBitmapFormat> pixelfmts = {
+      dom::ImageBitmapFormat::RGBA32,
+      dom::ImageBitmapFormat::BGRA32,
+      dom::ImageBitmapFormat::YUV444P,
+      dom::ImageBitmapFormat::YUV422P,
+      dom::ImageBitmapFormat::YUV420P,
+      dom::ImageBitmapFormat::YUV420SP_NV12,
+      dom::ImageBitmapFormat::YUV420SP_NV21};
+  // We accpet all the color spaces since we will ignore them currently.
+  nsTArray<EncoderConfig::VideoColorSpace> colorSpaces =
+      EncoderConfig::VideoColorSpace::GetAllColorSpaces();
+  return EncoderConfig::VideoSampleFormat::GenerateFormats(pixelfmts,
+                                                           colorSpaces);
 }
 
 Maybe<FFmpegVideoEncoder<LIBAV_VER>::SVCSettings>

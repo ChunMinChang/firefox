@@ -255,7 +255,14 @@ static bool EnsureInit(const RefPtr<MediaDataEncoder>& aEncoder) {
   bool succeeded;
   media::Await(
       GetMediaThreadPool(MediaThreadType::SUPERVISOR), aEncoder->Init(),
-      [&succeeded](bool) { succeeded = true; },
+      [&succeeded](UniquePtr<MediaDataEncoder::InitResult>&& aInitResult) {
+        auto r = std::move(aInitResult);
+        EXPECT_NE(r->AsVideoInitResult(), nullptr);
+        auto vResult = UniquePtr<MediaDataEncoder::VideoInitResult>(
+            r.release()->AsVideoInitResult());
+        EXPECT_FALSE(vResult->GetCompatibleFormats().IsEmpty());
+        succeeded = true;
+      },
       [&succeeded](const MediaResult& r) { succeeded = false; });
   return succeeded;
 }

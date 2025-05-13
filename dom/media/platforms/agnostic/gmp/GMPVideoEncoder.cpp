@@ -192,7 +192,9 @@ void GMPVideoEncoder::InitComplete(GMPVideoEncoderProxy* aGMP,
 
   GMP_LOG_DEBUG("[%p] GMPVideoEncoder::InitComplete -- encoder initialized",
                 this);
-  mInitPromise.Resolve(TrackInfo::TrackType::kVideoTrack, __func__);
+
+  auto fmts = MakeUnique<VideoInitResult>(GetSupportedFormats());
+  mInitPromise.Resolve(std::move(fmts), __func__);
 }
 
 RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
@@ -464,6 +466,30 @@ void GMPVideoEncoder::Terminated() {
   Teardown(
       MediaResult(NS_ERROR_DOM_MEDIA_ABORT_ERR, "Terminated GMP callback"_ns),
       __func__);
+}
+
+nsTArray<EncoderConfig::VideoSampleFormat>
+GMPVideoEncoder::GetSupportedFormats() const {
+  MOZ_ASSERT(IsOnGMPThread());
+  MOZ_ASSERT(IsInitialized(),
+             "GetSupportedFormats called before Init or after Shutdown");
+
+  // Images in the formats listed below will be converted to I420 before being
+  // passed to the encoder.
+  nsTArray<dom::ImageBitmapFormat> pixelfmts = {
+      dom::ImageBitmapFormat::RGBA32,
+      dom::ImageBitmapFormat::BGRA32,
+      dom::ImageBitmapFormat::YUV444P,
+      dom::ImageBitmapFormat::YUV422P,
+      dom::ImageBitmapFormat::YUV420P,
+      dom::ImageBitmapFormat::YUV420SP_NV12,
+      dom::ImageBitmapFormat::YUV420SP_NV21};
+  // We accpet all the color spaces since we will ignore them currently.
+  nsTArray<EncoderConfig::VideoColorSpace> colorSpaces =
+      EncoderConfig::VideoColorSpace::GetAllColorSpaces();
+
+  return EncoderConfig::VideoSampleFormat::GenerateFormats(pixelfmts,
+                                                           colorSpaces);
 }
 
 }  // namespace mozilla

@@ -146,7 +146,8 @@ RefPtr<MediaDataEncoder::InitPromise> AndroidDataEncoder::ProcessInit() {
   mIsHardwareAccelerated = mJavaEncoder->IsHardwareAccelerated();
   mDrainState = DrainState::DRAINABLE;
 
-  return InitPromise::CreateAndResolve(TrackInfo::kVideoTrack, __func__);
+  auto fmts = MakeUnique<VideoInitResult>(GetSupportedFormats());
+  return InitPromise::CreateAndResolve(std::move(fmts), __func__);
 }
 
 RefPtr<MediaDataEncoder::EncodePromise> AndroidDataEncoder::Encode(
@@ -182,6 +183,7 @@ static jni::ByteBuffer::LocalRef ConvertI420ToNV12Buffer(
     MOZ_ASSERT(aYUVBuffer->Length() >= length);
   }
 
+  // TODO: Replace libyuv::I420ToNV12 with ConvertToNV12.
   if (libyuv::I420ToNV12(yuv->mYChannel, yuv->mYStride, yuv->mCbChannel,
                          yuv->mCbCrStride, yuv->mCrChannel, yuv->mCbCrStride,
                          aYUVBuffer->Elements(), yStride,
@@ -483,6 +485,23 @@ void AndroidDataEncoder::Error(const MediaResult& aError) {
   AssertOnTaskQueue();
 
   mError = Some(aError);
+}
+
+nsTArray<EncoderConfig::VideoSampleFormat>
+AndroidDataEncoder::GetSupportedFormats() const {
+  AssertOnTaskQueue();
+  MOZ_ASSERT(mJavaEncoder,
+             "GetSupportedFormats() called before Init() or after Shutdown()");
+
+  // Images in the formats listed below will be converted to NV12 before being
+  // passed to the encoder.
+  nsTArray<dom::ImageBitmapFormat> pixelfmts = {
+      dom::ImageBitmapFormat::YUV420P};
+  // We accpet all the color spaces since we will ignore them currently.
+  nsTArray<EncoderConfig::VideoColorSpace> colorSpaces =
+      EncoderConfig::VideoColorSpace::GetAllColorSpaces();
+  return EncoderConfig::VideoSampleFormat::GenerateFormats(pixelfmts,
+                                                           colorSpaces);
 }
 
 void AndroidDataEncoder::CallbacksSupport::HandleInput(int64_t aTimestamp,
