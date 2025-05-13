@@ -22,6 +22,15 @@ namespace mozilla {
 class MediaEncoderChangeMonitor final : public MediaDataEncoder {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaEncoderChangeMonitor, final);
 
+  using CreateEncoderPromise = PlatformEncoderModule::CreateEncoderPromise;
+
+  // Although some states can be merged, we keep them separate for clarity.
+  MOZ_DEFINE_ENUM_CLASS_WITH_TOSTRING_AT_CLASS_SCOPE(
+      State, (Unset, Creating, Uninit, Initializing, Inited, Reconfiguring,
+              Encoding, Draining, ShuttingDown, Error, Reinit_Drying,
+              Reinit_Dried, Reinit_ShuttingDown, Reinit_Unset, Reinit_Creating,
+              Reinit_Uninit, Reinit_Initializing));
+
  public:
   static RefPtr<PlatformEncoderModule::CreateEncoderPromise> Create(
       PlatformEncoderModule* aPEM, const EncoderConfig& aConfig,
@@ -43,7 +52,56 @@ class MediaEncoderChangeMonitor final : public MediaDataEncoder {
   MediaEncoderChangeMonitor(PlatformEncoderModule* aPEM,
                             const EncoderConfig& aConfig,
                             const RefPtr<TaskQueue>& aTaskQueue);
-  virtual ~MediaEncoderChangeMonitor() = default;
+  virtual ~MediaEncoderChangeMonitor();
+
+  RefPtr<CreateEncoderPromise> CreateEncoder(State aState);
+  RefPtr<InitPromise> InitEncoder(State aState);
+  RefPtr<ReconfigurationPromise> ReconfigureEncoder(
+      const RefPtr<const EncoderConfigurationChangeList>&
+          aConfigurationChanges);
+  RefPtr<EncodePromise> EncodeSample(const MediaData* aSample);
+  RefPtr<EncodePromise> DrainEncoder();
+
+  bool NeedReinit(const EncoderConfig::VideoSampleFormat& aSampleFormat);
+
+  // Dry, shutdown the old encoder, then reinit a new encoder, then encode.
+  RefPtr<EncodePromise> EncodeAfterReinit(const MediaData* aSample);
+
+  // Operations would be cancelled if shutdown is called.
+  RefPtr<EncodePromise> DryEncoder();
+  void DryEncoderInternal();
+
+  void ShutdownThenReinit();
+  void ReinitThenEncode();
+  void EncodePendingSample();
+
+  void RejectPendingEncodePromiseIfAny(const MediaResult& aError);
+
+  void SetState(State aState);
+
+  const nsCOMPtr<nsISerialEventTarget> mThread;
+  const RefPtr<PlatformEncoderModule> mPEM;
+  const RefPtr<TaskQueue> mTaskQueue;
+  EncoderConfig mConfig;
+  nsTArray<EncoderConfig::VideoSampleFormat> mCompatibleFormats;
+  RefPtr<MediaDataEncoder> mEncoder = nullptr;
+
+  State mState = State::Unset;
+
+  MozPromiseHolder<ShutdownPromise> mShutdownWhileCreationPromise;
+  MozPromiseHolder<CreateEncoderPromise> mCreatePromise;
+  MozPromiseRequestHolder<CreateEncoderPromise> mCreateRequest;
+
+  EncodedData mPendingOutput;
+  RefPtr<const MediaData> mPendingSample;
+  MozPromiseHolder<EncodePromise> mEncodeAfterReinitPromise;
+
+  EncodedData mDryData;
+  MozPromiseHolder<EncodePromise> mDryPromise;
+  MozPromiseRequestHolder<EncodePromise> mDrainForDryRequest;
+
+  MozPromiseRequestHolder<ShutdownPromise> mReinitShutdownRequest;
+  MozPromiseHolder<ShutdownPromise> mShutdownWhileReinitShutdownPromise;
 };
 
 }  // namespace mozilla
