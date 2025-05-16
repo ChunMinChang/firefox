@@ -338,11 +338,17 @@ MediaResult AppleVTEncoder::SetColorSpace(
 }
 
 static Result<OSType, MediaResult> MapPixelFormat(
-    dom::ImageBitmapFormat aFormat, gfx::ColorRange aColorRange) {
-  const bool isFullRange = aColorRange == gfx::ColorRange::FULL;
+    const EncoderConfig::SampleFormat& aFormat) {
+  if (!aFormat.mColorSpace.mRange) {
+    LOGW("Map the pixel format with guessed color range");
+  }
 
-  Maybe<OSType> fmt;
-  switch (aFormat) {
+  const bool isFullRange =
+      aFormat.GetEffectiveColorRange() == gfx::ColorRange::FULL;
+
+  // For non-YUV formats, the color range is disregarded as macOS does not
+  // provide a color range setting for these formats.
+  switch (aFormat.mPixelFormat) {
     case dom::ImageBitmapFormat::YUV444P:
       return kCVPixelFormatType_444YpCbCr8;
     case dom::ImageBitmapFormat::YUV422P:
@@ -355,38 +361,27 @@ static Result<OSType, MediaResult> MapPixelFormat(
       return isFullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
                          : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
     case dom::ImageBitmapFormat::RGBA32:
-      fmt.emplace(kCVPixelFormatType_32RGBA);
-      break;
+      return kCVPixelFormatType_32RGBA;
     case dom::ImageBitmapFormat::BGRA32:
-      fmt.emplace(kCVPixelFormatType_32BGRA);
-      break;
+      return kCVPixelFormatType_32BGRA;
     case dom::ImageBitmapFormat::RGB24:
-      fmt.emplace(kCVPixelFormatType_24RGB);
-      break;
+      return kCVPixelFormatType_24RGB;
     case dom::ImageBitmapFormat::BGR24:
-      fmt.emplace(kCVPixelFormatType_24BGR);
-      break;
+      return kCVPixelFormatType_24BGR;
     case dom::ImageBitmapFormat::GRAY8:
-      fmt.emplace(kCVPixelFormatType_OneComponent8);
+      return kCVPixelFormatType_OneComponent8;
+    case dom::ImageBitmapFormat::YUV420SP_NV21:
+    case dom::ImageBitmapFormat::HSV:
+    case dom::ImageBitmapFormat::Lab:
+    case dom::ImageBitmapFormat::DEPTH:
       break;
-    default:
-      MOZ_ASSERT_UNREACHABLE("Unsupported image format");
   }
 
-  // Limited RGB formats are not supported on MacOS (Bug 1957758).
-  if (fmt) {
-    if (!isFullRange) {
-      return Err(MediaResult(
-          NS_ERROR_NOT_IMPLEMENTED,
-          RESULT_DETAIL("format %s with limited colorspace is not supported",
-                        dom::GetEnumString(aFormat).get())));
-    }
-    return fmt.value();
-  }
-
-  return Err(MediaResult(NS_ERROR_NOT_IMPLEMENTED,
-                         RESULT_DETAIL("format %s is not supported",
-                                       dom::GetEnumString(aFormat).get())));
+  MOZ_ASSERT_UNREACHABLE("Unsupported image format");
+  return Err(MediaResult(
+      NS_ERROR_NOT_IMPLEMENTED,
+      RESULT_DETAIL("format %s is not supported",
+                    dom::GetEnumString(aFormat.mPixelFormat).get())));
 }
 
 RefPtr<MediaDataEncoder::InitPromise> AppleVTEncoder::Init() {
@@ -1037,11 +1032,7 @@ CVPixelBufferRef AppleVTEncoder::CreateCVPixelBuffer(Image* aSource) {
   }
   const EncoderConfig::SampleFormat sf = sfr.unwrap();
 
-  gfx::ColorRange defaultColorRange =
-      sf.IsYUV() ? gfx::ColorRange::LIMITED : gfx::ColorRange::FULL;
-  auto pfr = MapPixelFormat(sf.mPixelFormat, sf.mColorSpace.mRange
-                                                 ? sf.mColorSpace.mRange.value()
-                                                 : defaultColorRange);
+  auto pfr = MapPixelFormat(sf);
   if (pfr.isErr()) {
     MediaResult err = pfr.unwrapErr();
     LOGE("%s", err.Description().get());

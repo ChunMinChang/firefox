@@ -185,6 +185,12 @@ class EncoderConfig final {
              mPixelFormat == dom::ImageBitmapFormat::YUV420SP_NV21;
     }
 
+    gfx::ColorRange GetEffectiveColorRange() const {
+      // Full range is currently only supported for YUV formats.
+      return mColorSpace.mRange.valueOr(IsYUV() ? gfx::ColorRange::LIMITED
+                                                : gfx::ColorRange::FULL);
+    }
+
     static Result<SampleFormat, MediaResult> FromImage(layers::Image* aImage);
   };
 
