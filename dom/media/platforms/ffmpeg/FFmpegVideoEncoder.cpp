@@ -774,15 +774,6 @@ FFmpegVideoEncoder<LIBAV_VER>::GetExtraData(AVPacket* aPacket) {
   return extraData.forget();
 }
 
-void FFmpegVideoEncoder<LIBAV_VER>::ForceEnablingFFmpegDebugLogs() {
-#if DEBUG
-  if (!getenv("MOZ_AV_LOG_LEVEL") &&
-      MOZ_LOG_TEST(sFFmpegVideoLog, LogLevel::Debug)) {
-    mLib->av_log_set_level(AV_LOG_DEBUG);
-  }
-#endif  // DEBUG
-}
-
 Maybe<FFmpegVideoEncoder<LIBAV_VER>::SVCSettings>
 FFmpegVideoEncoder<LIBAV_VER>::GetSVCSettings() {
   MOZ_ASSERT(!mCodecName.IsEmpty());
