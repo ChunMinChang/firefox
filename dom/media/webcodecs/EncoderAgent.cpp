@@ -129,8 +129,8 @@ RefPtr<EncoderAgent::ConfigurePromise> EncoderAgent::Configure(
                     self->mOwnerThread, __func__,
                     [self]() {
                       self->mInitRequest.Complete();
-                      LOG("EncoderAgent #%zu (%p) has initialized the encoder",
-                          self->mId, self.get());
+                      LOG("EncoderAgent #%zu (%p) has initialized the encoder: %s",
+                          self->mId, self.get(), self->mEncoder->GetDescriptionName().get());
                       self->SetState(State::Configured);
                       self->mConfigurePromise.Resolve(true, __func__);
                     },

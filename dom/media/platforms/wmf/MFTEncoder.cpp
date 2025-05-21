@@ -90,51 +90,6 @@ static const char* CodecStr(const GUID& aGUID) {
   }
 }
 
-static UINT32 EnumEncoders(const GUID& aSubtype, IMFActivate**& aActivates,
-                           const bool aUseHW = true) {
-  UINT32 num = 0;
-  MFT_REGISTER_TYPE_INFO inType = {.guidMajorType = MFMediaType_Video,
-                                   .guidSubtype = MFVideoFormat_NV12};
-  MFT_REGISTER_TYPE_INFO outType = {.guidMajorType = MFMediaType_Video,
-                                    .guidSubtype = aSubtype};
-  HRESULT hr = S_OK;
-  if (aUseHW) {
-    if (IsWin32kLockedDown()) {
-      // Some HW encoders use DXGI API and crash when locked down.
-      // TODO: move HW encoding out of content process (bug 1754531).
-      MFT_ENC_SLOGD("Don't use HW encoder when win32k locked down.");
-      return 0;
-    }
-
-    hr = wmf::MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
-                        MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
-                        &inType, &outType, &aActivates, &num);
-    if (FAILED(hr)) {
-      MFT_ENC_SLOGE("enumerate HW encoder for %s: error=%s", CodecStr(aSubtype),
-                    ErrorStr(hr));
-      return 0;
-    }
-    if (num > 0) {
-      return num;
-    }
-  }
-
-  // Try software MFTs.
-  hr = wmf::MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
-                      MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_ASYNCMFT |
-                          MFT_ENUM_FLAG_SORTANDFILTER,
-                      &inType, &outType, &aActivates, &num);
-  if (FAILED(hr)) {
-    MFT_ENC_SLOGE("enumerate SW encoder for %s: error=%s", CodecStr(aSubtype),
-                  ErrorStr(hr));
-    return 0;
-  }
-  if (num == 0) {
-    MFT_ENC_SLOGD("cannot find encoder for %s", CodecStr(aSubtype));
-  }
-  return num;
-}
-
 static HRESULT GetFriendlyName(IMFActivate* aAttributes, nsCString& aName) {
   UINT32 len = 0;
   HRESULT hr = aAttributes->GetStringLength(MFT_FRIENDLY_NAME_Attribute, &len);
@@ -155,8 +110,73 @@ static HRESULT GetFriendlyName(IMFActivate* aAttributes, nsCString& aName) {
   return S_OK;
 }
 
+static UINT32 EnumEncoders(const GUID& aSubtype, IMFActivate**& aActivates,
+                           const bool aUseHW = true) {
+  MFT_ENC_SLOGE("EnumEncoders %s, UseHW: %s, Win32kLockedDown? %s",
+                CodecStr(aSubtype), aUseHW ? "true" : "false",
+                IsWin32kLockedDown() ? "true" : "false");
+  UINT32 num = 0;
+  MFT_REGISTER_TYPE_INFO inType = {.guidMajorType = MFMediaType_Video,
+                                   .guidSubtype = MFVideoFormat_NV12};
+  MFT_REGISTER_TYPE_INFO outType = {.guidMajorType = MFMediaType_Video,
+                                    .guidSubtype = aSubtype};
+  HRESULT hr = S_OK;
+
+  // Lambda for logging encoder names
+  auto logEncoderNames = [&](const char* prefix, IMFActivate** activates,
+                             UINT32 count) {
+    for (UINT32 i = 0; i < count; ++i) {
+      nsAutoCString name;
+      GetFriendlyName(activates[i], name);
+      MFT_ENC_SLOGD("%s [%s] encoder: %s\n", prefix, CodecStr(aSubtype),
+                    name.get());
+    }
+  };
+
+  if (aUseHW) {
+    if (IsWin32kLockedDown()) {
+      // Some HW encoders use DXGI API and crash when locked down.
+      // TODO: move HW encoding out of content process (bug 1754531).
+      MFT_ENC_SLOGD("Don't use HW encoder when win32k locked down.");
+      return 0;
+    }
+
+    hr = wmf::MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
+                        MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                        &inType, &outType, &aActivates, &num);
+    if (FAILED(hr)) {
+      MFT_ENC_SLOGE("enumerate HW encoder for %s: error=%s", CodecStr(aSubtype),
+                    ErrorStr(hr));
+      return 0;
+    }
+    if (num > 0) {
+      MFT_ENC_SLOGE("Detected %d %s HW encoders", num, CodecStr(aSubtype));
+      logEncoderNames("HW", aActivates, num);
+      return num;
+    }
+  }
+
+  // Try software MFTs.
+  hr = wmf::MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
+                      MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_ASYNCMFT |
+                          MFT_ENUM_FLAG_SORTANDFILTER,
+                      &inType, &outType, &aActivates, &num);
+  if (FAILED(hr)) {
+    MFT_ENC_SLOGE("enumerate SW encoder for %s: error=%s", CodecStr(aSubtype),
+                  ErrorStr(hr));
+    return 0;
+  }
+  if (num == 0) {
+    MFT_ENC_SLOGD("cannot find encoder for %s", CodecStr(aSubtype));
+  }
+  MFT_ENC_SLOGE("Detected %d %s SW encoders", num, CodecStr(aSubtype));
+  logEncoderNames("SW", aActivates, num);
+  return num;
+}
+
 static void PopulateEncoderInfo(const GUID& aSubtype,
                                 nsTArray<MFTEncoder::Info>& aInfos) {
+  MFT_ENC_SLOGD("PopulateEncoderInfo: %s", CodecStr(aSubtype));
   IMFActivate** activates = nullptr;
   UINT32 num = EnumEncoders(aSubtype, activates);
   for (UINT32 i = 0; i < num; ++i) {
@@ -209,6 +229,8 @@ nsTArray<MFTEncoder::Info>& MFTEncoder::Infos() {
 }
 
 already_AddRefed<IMFActivate> MFTEncoder::CreateFactory(const GUID& aSubtype) {
+  MFT_ENC_LOGD("MFTEncoder::CreateFactory: %s, mHardwareNotAllowed: %s",
+               CodecStr(aSubtype), mHardwareNotAllowed ? "true" : "false");
   IMFActivate** activates = nullptr;
   UINT32 num = EnumEncoders(aSubtype, activates, !mHardwareNotAllowed);
   if (num == 0) {
