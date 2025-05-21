@@ -134,12 +134,12 @@ static UINT32 EnumEncoders(const GUID& aSubtype, IMFActivate**& aActivates,
   };
 
   if (aUseHW) {
-    if (IsWin32kLockedDown()) {
-      // Some HW encoders use DXGI API and crash when locked down.
-      // TODO: move HW encoding out of content process (bug 1754531).
-      MFT_ENC_SLOGD("Don't use HW encoder when win32k locked down.");
-      return 0;
-    }
+    // if (IsWin32kLockedDown()) {
+    //   // Some HW encoders use DXGI API and crash when locked down.
+    //   // TODO: move HW encoding out of content process (bug 1754531).
+    //   MFT_ENC_SLOGD("Don't use HW encoder when win32k locked down.");
+    //   return 0;
+    // }
 
     hr = wmf::MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
                         MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
