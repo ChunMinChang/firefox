@@ -49,6 +49,11 @@ UniquePtr<CrossGraphPort> CrossGraphPort::Connect(
        transmitter.get(), transmitter->mSampleRate, aStreamTrack.get(),
        receiver.get(), receiver->mSampleRate, aStreamTrack->Graph(),
        aPartnerGraph));
+  printf("Created CrossGraphPort transmitter %p (rate %u, from AudioStreamTrack "
+         "%p) and receiver %p (rate %u) between graphs %p and %p\n",
+         transmitter.get(), transmitter->mSampleRate, aStreamTrack.get(),
+         receiver.get(), receiver->mSampleRate, aStreamTrack->Graph(),
+         aPartnerGraph);
 
   return WrapUnique(new CrossGraphPort(std::move(port), std::move(transmitter),
                                        std::move(receiver)));
@@ -60,6 +65,10 @@ CrossGraphPort::~CrossGraphPort() {
        "(rate %u) between graphs %p and %p",
        mTransmitter.get(), mTransmitter->mSampleRate, mReceiver.get(),
        mReceiver->mSampleRate, mTransmitter->Graph(), mReceiver->Graph()));
+  printf("Destroying CrossGraphPort transmitter %p (rate %u) and receiver %p "
+         "(rate %u) between graphs %p and %p\n",
+         mTransmitter.get(), mTransmitter->mSampleRate, mReceiver.get(),
+         mReceiver->mSampleRate, mTransmitter->Graph(), mReceiver->Graph());
   mTransmitter->Destroy();
   mReceiver->Destroy();
   mTransmitterPort->Destroy();

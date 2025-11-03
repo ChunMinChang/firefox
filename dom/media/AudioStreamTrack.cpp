@@ -45,6 +45,7 @@ void AudioStreamTrack::SetAudioOutputVolume(void* aKey, float aVolume) {
 
 already_AddRefed<MediaInputPort> AudioStreamTrack::ForwardContentsTo(
     ProcessedMediaTrack* aTrack) {
+  printf("AudioStreamTrack %p ForwardTrackContents2 to ProcessedMediaTrack %p\n", this, aTrack);
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_RELEASE_ASSERT(aTrack);
 
@@ -73,14 +74,17 @@ already_AddRefed<MediaInputPort> AudioStreamTrack::ForwardContentsTo(
 
 void AudioStreamTrack::MaybeRemoveCrossGraphPort(TrackRate aRate) {
   MOZ_ASSERT(NS_IsMainThread());
+  printf("AudioStreamTrack %p MaybeRemoveCrossGraphPort for rate %u\n", this, aRate);
 
   Maybe<UniquePtr<CrossGraphPort>> port = mCrossGraphs.Release(aRate);
   if (port) {
+    printf("!! Removing CrossGraphPort for rate %u\n", aRate);
     LOG(LogLevel::Verbose, ("AudioStreamTrack %p removing cross-graph "
                             "forwarding to graph (rate %u)",
                             this, aRate));
     port->reset();
   }
+  printf("%zu CrossGraphPorts remain for AudioStreamTrack %p\n", mCrossGraphs.Count(), this);
 }
 
 void AudioStreamTrack::GetLabel(nsAString& aLabel, CallerType aCallerType) {

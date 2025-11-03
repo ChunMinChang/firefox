@@ -95,6 +95,7 @@ MediaStreamAudioSourceNode::~MediaStreamAudioSourceNode() { Destroy(); }
 
 void MediaStreamAudioSourceNode::AttachToTrack(
     const RefPtr<MediaStreamTrack>& aTrack, ErrorResult& aRv) {
+  printf("Attaching MediaStreamAudioSourceNode %p to track %p\n", this, aTrack.get());
   MOZ_ASSERT(!mInputTrack);
   MOZ_ASSERT(aTrack->AsAudioStreamTrack());
   MOZ_DIAGNOSTIC_ASSERT(!aTrack->Ended());
@@ -113,6 +114,7 @@ void MediaStreamAudioSourceNode::AttachToTrack(
 }
 
 void MediaStreamAudioSourceNode::DetachFromTrack() {
+  printf("Detaching MediaStreamAudioSourceNode %p from track %p and port %p\n", this, mInputTrack.get(), mInputPort.get());
   if (mInputTrack) {
     mInputTrack->AsAudioStreamTrack()->MaybeRemoveCrossGraphPort(
         Context()->Graph()->GraphRate());
