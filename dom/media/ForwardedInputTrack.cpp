@@ -120,6 +120,7 @@ void ForwardedInputTrack::ProcessInputImpl(MediaTrack* aSource,
 
     if (inputEnded) {
       if (mAutoend && (aFlags & ALLOW_END)) {
+        printf("** ForwardedInputTrack %p ending due to input ended\n", this);
         mEnded = true;
         break;
       }

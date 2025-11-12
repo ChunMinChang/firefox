@@ -276,6 +276,7 @@ void MediaTrackGraphImpl::UpdateCurrentTimeForTracks(
         track->mNotifiedEnded = true;
         SetTrackOrderDirty();
         for (const auto& listener : track->mTrackListeners) {
+          printf("!! MediaTrackGraphImpl %p notifying ended for track %p\n", this, track);
           listener->NotifyOutput(this, track->GetEnd());
           listener->NotifyEnded(this);
         }

@@ -114,6 +114,7 @@ class MediaStreamTrack::MTGListener : public MediaTrackListener {
   }
 
   void DoNotifyEnded() {
+    printf("MediaStreamTrack::MTGListener::DoNotifyEnded called for track %p\n", mTrack.get());
     MOZ_ASSERT(NS_IsMainThread());
 
     if (!mTrack) {
@@ -130,6 +131,7 @@ class MediaStreamTrack::MTGListener : public MediaTrackListener {
   }
 
   void NotifyEnded(MediaTrackGraph* aGraph) override {
+    printf("MediaStreamTrack::MTGListener::NotifyEnded called, from graph %p\n", aGraph);
     aGraph->DispatchToMainThreadStableState(
         NewRunnableMethod("MediaStreamTrack::MTGListener::DoNotifyEnded", this,
                           &MTGListener::DoNotifyEnded));
@@ -542,6 +544,9 @@ void MediaStreamTrack::RemoveConsumer(MediaStreamTrackConsumer* aConsumer) {
 }
 
 void MediaStreamTrack::SetReadyState(MediaStreamTrackState aState) {
+  const char* stateStr[] = {"live", "ended"};
+  printf("MediaStreamTrack %p SetReadyState from %s to %s\n", this,
+         stateStr[static_cast<int>(mReadyState)], stateStr[static_cast<int>(aState)]);
   MOZ_ASSERT(!(mReadyState == MediaStreamTrackState::Ended &&
                aState == MediaStreamTrackState::Live),
              "We don't support overriding the ready state from ended to live");
@@ -559,9 +564,11 @@ void MediaStreamTrack::SetReadyState(MediaStreamTrackState aState) {
       RemoveListener(mMTGListener);
     }
     if (mPort) {
+      printf("\tDestroying MediaInputPort %p\n", mPort.get());
       mPort->Destroy();
     }
     if (mTrack) {
+      printf("\tDestroying ProcessedMediaTrack %p\n", mTrack.get());
       mTrack->Destroy();
     }
     mPort = nullptr;
@@ -573,6 +580,7 @@ void MediaStreamTrack::SetReadyState(MediaStreamTrackState aState) {
 }
 
 void MediaStreamTrack::OverrideEnded() {
+  printf("MediaStreamTrack %p OverrideEnded called\n", this);
   MOZ_ASSERT(NS_IsMainThread());
 
   if (Ended()) {

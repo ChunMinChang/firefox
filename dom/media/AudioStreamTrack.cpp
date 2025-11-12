@@ -45,7 +45,7 @@ void AudioStreamTrack::SetAudioOutputVolume(void* aKey, float aVolume) {
 
 already_AddRefed<MediaInputPort> AudioStreamTrack::ForwardContentsTo(
     ProcessedMediaTrack* aTrack) {
-  printf("AudioStreamTrack %p ForwardTrackContents2 to ProcessedMediaTrack %p\n", this, aTrack);
+  printf("AudioStreamTrack %p forwards contents from %p to ProcessedMediaTrack %p\n", this, mTrack.get(), aTrack);
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_RELEASE_ASSERT(aTrack);
 

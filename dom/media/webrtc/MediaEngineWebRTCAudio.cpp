@@ -338,6 +338,7 @@ nsresult MediaEngineWebRTCMicrophoneSource::Allocate(
 
 nsresult MediaEngineWebRTCMicrophoneSource::Deallocate() {
   AssertIsOnOwningThread();
+  printf("MediaEngineWebRTCMicrophoneSource %p Deallocate called\n", this);
 
   MOZ_ASSERT(mState == kStopped || mState == kAllocated);
 
@@ -1192,6 +1193,7 @@ const webrtc::AudioProcessing::Config& AudioInputProcessing::AppliedConfig(
 }
 
 void AudioInputProcessing::End() {
+  printf("AudioInputProcessing %p Ending\n", this);
   mEnded = true;
   mSegment.Clear();
 }
@@ -1355,6 +1357,7 @@ AudioProcessingTrack* AudioProcessingTrack::Create(MediaTrackGraph* aGraph) {
 }
 
 void AudioProcessingTrack::DestroyImpl() {
+  printf("AudioProcessingTrack %p DestroyImpl called\n", this);
   ProcessedMediaTrack::DestroyImpl();
   if (mInputProcessing) {
     mInputProcessing->End();
@@ -1391,6 +1394,7 @@ void AudioProcessingTrack::ProcessInput(GraphTime aFrom, GraphTime aTo,
 
     ApplyTrackDisabling(mSegment.get());
   } else if (aFlags & ALLOW_END) {
+    printf("AudioProcessingTrack %p ending due to ALLOW_END flag\n", this);
     mEnded = true;
   }
 }

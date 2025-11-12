@@ -30,8 +30,6 @@ class AudioStreamTrack : public MediaStreamTrack {
   AudioStreamTrack* AsAudioStreamTrack() override { return this; }
   const AudioStreamTrack* AsAudioStreamTrack() const override { return this; }
 
-  // Direct output to aSink, or the default output device if aSink is null.
-  // No more than one output may exist for a single aKey at any one time.
   // Returns a promise that resolves when the device is processing audio.
   RefPtr<GenericPromise> AddAudioOutput(void* aKey, AudioDeviceInfo* aSink);
   void RemoveAudioOutput(void* aKey);

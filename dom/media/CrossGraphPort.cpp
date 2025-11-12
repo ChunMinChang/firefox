@@ -82,6 +82,11 @@ CrossGraphTransmitter::CrossGraphTransmitter(
                           nullptr /* aSegment */),
       mReceiver(std::move(aReceiver)) {}
 
+void CrossGraphTransmitter::RemoveInput(MediaInputPort* aPort) {
+  printf("CrossGraphTransmitter %p RemoveInput port %p\n", this, aPort);
+  ProcessedMediaTrack::RemoveInput(aPort);
+}
+
 void CrossGraphTransmitter::ProcessInput(GraphTime aFrom, GraphTime aTo,
                                          uint32_t aFlags) {
   MOZ_ASSERT(!mInputs.IsEmpty());

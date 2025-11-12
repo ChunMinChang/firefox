@@ -36,6 +36,8 @@ class CrossGraphTransmitter : public ProcessedMediaTrack {
   }
   void ProcessInput(GraphTime aFrom, GraphTime aTo, uint32_t aFlags) override;
 
+  void RemoveInput(MediaInputPort* aPort) override;
+
  private:
   const RefPtr<CrossGraphReceiver> mReceiver;
 };
