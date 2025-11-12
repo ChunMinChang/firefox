@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html class="reftest-wait">
+<head>
+  <title>Test bug 1674892 - MediaStreamAudioSourceNode with getUserMedia and different sample rate</title>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      const iframe = document.createElement("iframe");
+      iframe.srcdoc = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script>
+            (async () => {
+              const ctx = new AudioContext({ sampleRate: 32000 });
+
+              const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                fake: true  // Use fake device for testing
+              });
+
+              const sourceNode = ctx.createMediaStreamSource(stream);
+
+              sourceNode.connect(ctx.destination);
+
+              // Wait a moment to ensure audio is flowing
+              await new Promise(resolve => setTimeout(resolve, 100));
+
+              // Notify parent that setup is complete
+              parent.postMessage("ready", "*");
+            })();
+          <\/script>
+        </head>
+        <body></body>
+        </html>
+      `;
+
+      document.body.appendChild(iframe);
+
+      // Wait for iframe to be ready, then close it
+      window.addEventListener("message", (event) => {
+        if (event.data === "ready") {
+          // Close the iframe while MediaStream and MediaStreamAudioSourceNode are active
+          iframe.remove();
+
+          // Remove reftest-wait to signal test completion
+          document.documentElement.removeAttribute("class");
+        }
+      });
+    });
+  </script>
+</head>
+<body></body>
+</html>
