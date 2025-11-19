@@ -9,6 +9,7 @@
 #include "CrossGraphPort.h"
 #include "DOMMediaStream.h"
 #include "MediaStreamTrack.h"
+#include "SimpleMap.h"
 #include "nsClassHashtable.h"
 
 namespace mozilla::dom {
@@ -36,10 +37,23 @@ class AudioStreamTrack : public MediaStreamTrack {
   void RemoveAudioOutput(void* aKey);
   void SetAudioOutputVolume(void* aKey, float aVolume);
 
+  // Prefer using ForwardContentsTo, as it will create a CrossGraphPort if
+  // necessary.
+  already_AddRefed<MediaInputPort> ForwardContentsTo(
+      ProcessedMediaTrack* aTrack);
+  void MaybeRemoveCrossGraphPort(TrackRate aRate);
+
   // WebIDL
   void GetKind(nsAString& aKind) override { aKind.AssignLiteral("audio"); }
 
   void GetLabel(nsAString& aLabel, CallerType aCallerType) override;
+
+ protected:
+  void SetReadyState(MediaStreamTrackState aState) override;
+
+ private:
+  // Main thread only
+  SimpleRefCountedMap<TrackRate, UniquePtr<CrossGraphPort>> mCrossGraphs;
 };
 
 }  // namespace mozilla::dom

@@ -103,24 +103,10 @@ void MediaStreamAudioSourceNode::AttachToTrack(
     return;
   }
 
-  if (NS_WARN_IF(Context()->Graph() != aTrack->Graph())) {
-    nsGlobalWindowInner* pWindow = Context()->GetOwnerWindow();
-    Document* document = pWindow ? pWindow->GetExtantDoc() : nullptr;
-    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "Web Audio"_ns,
-                                    document, nsContentUtils::eDOM_PROPERTIES,
-                                    "MediaStreamAudioSourceNodeDifferentRate");
-    // This is not a spec-required exception, just a limitation of our
-    // implementation.
-    aRv.ThrowNotSupportedError(
-        "Connecting AudioNodes from AudioContexts with different sample-rate "
-        "is currently not supported.");
-    return;
-  }
-
   mInputTrack = aTrack;
   ProcessedMediaTrack* outputTrack =
       static_cast<ProcessedMediaTrack*>(mTrack.get());
-  mInputPort = mInputTrack->ForwardTrackContentsTo(outputTrack);
+  mInputPort = aTrack->AsAudioStreamTrack()->ForwardContentsTo(outputTrack);
   PrincipalChanged(mInputTrack);  // trigger enabling/disabling of the connector
   mInputTrack->AddPrincipalChangeObserver(this);
   MarkActive();
@@ -128,6 +114,8 @@ void MediaStreamAudioSourceNode::AttachToTrack(
 
 void MediaStreamAudioSourceNode::DetachFromTrack() {
   if (mInputTrack) {
+    mInputTrack->AsAudioStreamTrack()->MaybeRemoveCrossGraphPort(
+        Context()->Graph()->GraphRate());
     mInputTrack->RemovePrincipalChangeObserver(this);
     mInputTrack = nullptr;
   }

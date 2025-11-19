@@ -8,6 +8,13 @@
 #include "MediaTrackGraph.h"
 #include "nsContentUtils.h"
 
+#ifdef LOG
+#  undef LOG
+#endif
+
+static mozilla::LazyLogModule gMediaStreamTrackLog("MediaStreamTrack");
+#define LOG(type, msg) MOZ_LOG(gMediaStreamTrackLog, type, msg)
+
 namespace mozilla::dom {
 
 RefPtr<GenericPromise> AudioStreamTrack::AddAudioOutput(
@@ -36,12 +43,78 @@ void AudioStreamTrack::SetAudioOutputVolume(void* aKey, float aVolume) {
   mTrack->SetAudioOutputVolume(aKey, aVolume);
 }
 
+already_AddRefed<MediaInputPort> AudioStreamTrack::ForwardContentsTo(
+    ProcessedMediaTrack* aTrack) {
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_RELEASE_ASSERT(aTrack);
+
+  if (mTrack->Graph() == aTrack->Graph()) {
+    return ForwardTrackContentsTo(aTrack);
+  }
+
+  LOG(LogLevel::Verbose,
+      ("AudioStreamTrack %p forwarding cross-graph contents from track %p "
+       "(graph %p) to track %p (graph %p)",
+       this, mTrack.get(), mTrack->Graph(), aTrack, aTrack->Graph()));
+
+  MOZ_ASSERT(aTrack->mSampleRate != mTrack->mSampleRate);
+
+  // Route audio from mTrack through a cross-graph transmitter and receiver to
+  // aTrack.
+  MediaTrackGraph* rcvrGraph = aTrack->Graph();
+  const auto& port = mCrossGraphs.GetOrInsertWith(rcvrGraph->GraphRate(), [&] {
+    LOG(LogLevel::Verbose,
+        ("AudioStreamTrack %p creating cross-graph port to graph (rate %u)",
+         this, rcvrGraph->GraphRate()));
+    return CrossGraphPort::Connect(RefPtr{this}, rcvrGraph);
+  });
+  return aTrack->AllocateInputPort(port->mReceiver);
+}
+
+void AudioStreamTrack::MaybeRemoveCrossGraphPort(TrackRate aRate) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  Maybe<UniquePtr<CrossGraphPort>> port = mCrossGraphs.Release(aRate);
+  if (port) {
+    LOG(LogLevel::Verbose, ("AudioStreamTrack %p removing cross-graph "
+                            "forwarding to graph (rate %u)",
+                            this, aRate));
+    port->reset();
+  }
+}
+
 void AudioStreamTrack::GetLabel(nsAString& aLabel, CallerType aCallerType) {
   MediaStreamTrack::GetLabel(aLabel, aCallerType);
 }
 
 already_AddRefed<MediaStreamTrack> AudioStreamTrack::Clone() {
   return MediaStreamTrack::CloneInternal<AudioStreamTrack>();
+}
+
+void AudioStreamTrack::SetReadyState(MediaStreamTrackState aState) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  // When transitioning from Live to Ended, mTrack will be destroyed. Since
+  // mTrack is the source for cross-graph data forwarding, keeping cross-graph
+  // ports is unnecessary. Clearing them here ensures all related connections
+  // are properly disconnected and prevents an assertion failure in
+  // CrossGraphTransmitters::ProcessInput due to a missing source.
+  //
+  // This state transition may occur in various situations, such as when the
+  // track is stopped by a user action, or when mTrack is ended during its
+  // ProcessInput (because its source has ended), which is then detected by
+  // MediaTrackGraph and ultimately notifies the ended-signal via MTGListener,
+  // reaching this point.
+  if (mCrossGraphs.Count() && !Ended() &&
+      mReadyState == MediaStreamTrackState::Live &&
+      aState == MediaStreamTrackState::Ended) {
+    LOG(LogLevel::Verbose,
+        ("AudioStreamTrack %p ending, destroying %zu cross-graph ports", this,
+         mCrossGraphs.Count()));
+    mCrossGraphs.Clear();
+  }
+
+  MediaStreamTrack::SetReadyState(aState);
 }
 
 }  // namespace mozilla::dom
