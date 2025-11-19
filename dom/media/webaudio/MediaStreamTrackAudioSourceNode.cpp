@@ -50,21 +50,6 @@ MediaStreamTrackAudioSourceNode::Create(
   // https://github.com/WebAudio/web-audio-api/issues/2149
   MOZ_RELEASE_ASSERT(!aAudioContext.IsOffline(), "Bindings messed up?");
 
-  if (!aOptions.mMediaStreamTrack->Ended() &&
-      aAudioContext.Graph() != aOptions.mMediaStreamTrack->Graph()) {
-    nsGlobalWindowInner* pWindow = aAudioContext.GetOwnerWindow();
-    Document* document = pWindow ? pWindow->GetExtantDoc() : nullptr;
-    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "Web Audio"_ns,
-                                    document, nsContentUtils::eDOM_PROPERTIES,
-                                    "MediaStreamAudioSourceNodeDifferentRate");
-    // This is not a spec-required exception, just a limitation of our
-    // implementation.
-    aRv.ThrowNotSupportedError(
-        "Connecting AudioNodes from AudioContexts with different sample-rate "
-        "is currently not supported.");
-    return nullptr;
-  }
-
   RefPtr<MediaStreamTrackAudioSourceNode> node =
       new MediaStreamTrackAudioSourceNode(&aAudioContext);
 
@@ -103,7 +88,8 @@ void MediaStreamTrackAudioSourceNode::Init(MediaStreamTrack* aMediaStreamTrack,
   mInputTrack = aMediaStreamTrack;
   ProcessedMediaTrack* outputTrack =
       static_cast<ProcessedMediaTrack*>(mTrack.get());
-  mInputPort = mInputTrack->ForwardTrackContentsTo(outputTrack);
+  mInputPort =
+      aMediaStreamTrack->AsAudioStreamTrack()->ForwardContentsTo(outputTrack);
   PrincipalChanged(mInputTrack);  // trigger enabling/disabling of the connector
   mInputTrack->AddPrincipalChangeObserver(this);
 
@@ -112,6 +98,8 @@ void MediaStreamTrackAudioSourceNode::Init(MediaStreamTrack* aMediaStreamTrack,
 
 void MediaStreamTrackAudioSourceNode::Destroy() {
   if (mInputTrack) {
+    mInputTrack->AsAudioStreamTrack()->MaybeRemoveCrossGraphPort(
+        Context()->Graph()->GraphRate());
     mTrackListener.NotifyEnded(mInputTrack);
     mInputTrack->RemovePrincipalChangeObserver(this);
     mInputTrack->RemoveConsumer(&mTrackListener);
