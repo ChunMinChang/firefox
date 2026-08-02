@@ -477,10 +477,23 @@ RefPtr<mozilla::VideoData> VideoEncoderTraits::CreateInputInternal(
           : media::TimeUnit::FromMicroseconds(
                 AssertedCast<int64_t>(aInput.GetDuration().Value()));
   media::TimeUnit pts = media::TimeUnit::FromMicroseconds(aInput.Timestamp());
-  return VideoData::CreateFromImage(
+  RefPtr<VideoData> data = VideoData::CreateFromImage(
       gfx::IntSize{aInput.DisplayWidth(), aInput.DisplayHeight()},
       0 /* bytestream offset */, pts, duration, aInput.GetImage(),
       aOptions.mKeyFrame, pts);
+  if (!data) {
+    return nullptr;
+  }
+
+  auto format = aInput.GetFormat();
+  if (!format.IsNull() && VideoFrame::Format(format.Value()).IsYUV()) {
+    data->mEncodeColor.emplace(ToEncodeColor(aInput.NativeColorSpace()));
+  } else {
+    data->mEncodeColor.emplace(
+        EncodeColor{gfx::CICP::CP_BT709, gfx::CICP::TC_BT709,
+                    gfx::CICP::MC_BT709, Some(gfx::ColorRange::LIMITED)});
+  }
+  return data;
 }
 
 /*
@@ -603,12 +616,15 @@ void VideoEncoder::EncoderConfigToDecoderConfig(
   aDestConfig.mCodedHeight.Construct(aSrcConfig.mHeight);
   aDestConfig.mCodedWidth.Construct(aSrcConfig.mWidth);
 
-  // Colorspace is mandatory when outputing a decoder config after encode
+  const EncodeColor encodeColor = aRawData->mEncodeColor.valueOr(
+      EncodeColor{gfx::CICP::CP_BT709, gfx::CICP::TC_BT709, gfx::CICP::MC_BT709,
+                  Some(gfx::ColorRange::LIMITED)});
+  const VideoColorSpaceInternal resolvedColor = ToVideoColorSpace(encodeColor);
   RootedDictionary<VideoColorSpaceInit> colorSpace(aCx);
-  colorSpace.mFullRange.SetValue(false);
-  colorSpace.mMatrix.SetValue(VideoMatrixCoefficients::Bt709);
-  colorSpace.mPrimaries.SetValue(VideoColorPrimaries::Bt709);
-  colorSpace.mTransfer.SetValue(VideoTransferCharacteristics::Bt709);
+  colorSpace.mFullRange = MaybeToNullable(resolvedColor.mFullRange);
+  colorSpace.mMatrix = MaybeToNullable(resolvedColor.mMatrix);
+  colorSpace.mPrimaries = MaybeToNullable(resolvedColor.mPrimaries);
+  colorSpace.mTransfer = MaybeToNullable(resolvedColor.mTransfer);
   aDestConfig.mColorSpace.Construct(std::move(colorSpace));
 
   if (aRawData->mExtraData && !aRawData->mExtraData->IsEmpty()) {

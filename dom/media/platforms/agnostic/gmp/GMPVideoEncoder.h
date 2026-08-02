@@ -68,6 +68,27 @@ class GMPVideoEncoder final : public MediaDataEncoder,
   void EncodeNextSample(nsTArray<RefPtr<MediaData>>&& aInputs,
                         MediaDataEncoder::EncodedData&& aOutputs);
 
+  class PendingEncode final {
+   public:
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(PendingEncode)
+
+    explicit PendingEncode(const VideoData& aSample)
+        : mPromise(new EncodePromise::Private(__func__)),
+          mTime(aSample.mTime),
+          mTimecode(aSample.mTimecode),
+          mDuration(aSample.mDuration),
+          mEncodeColor(aSample.mEncodeColor) {}
+
+    const RefPtr<EncodePromise::Private> mPromise;
+    const media::TimeUnit mTime;
+    const media::TimeUnit mTimecode;
+    const media::TimeUnit mDuration;
+    const Maybe<EncodeColor> mEncodeColor;
+
+   private:
+    ~PendingEncode() = default;
+  };
+
   const EncoderConfig mConfig;
   nsCOMPtr<mozIGeckoMediaPluginService> mMPS;
   GMPVideoEncoderProxy* mGMP = nullptr;
@@ -75,9 +96,9 @@ class GMPVideoEncoder final : public MediaDataEncoder,
   MozPromiseHolder<InitPromise> mInitPromise;
   MozPromiseHolder<EncodePromise> mDrainPromise;
 
-  using PendingEncodePromises =
-      nsRefPtrHashtable<nsUint64HashKey, EncodePromise::Private>;
-  PendingEncodePromises mPendingEncodes;
+  using PendingEncodes = nsRefPtrHashtable<nsUint64HashKey, PendingEncode>;
+  PendingEncodes mPendingEncodes;
+  uint64_t mNextFrameId = 0;
 
   MozPromiseHolder<EncodePromise> mEncodeBatchPromise;
   MozPromiseRequestHolder<EncodePromise> mEncodeBatchRequest;

@@ -14,6 +14,7 @@
 #include "mozilla/PMediaDecoderParams.h"
 #include "mozilla/RemoteImageHolder.h"
 #include "mozilla/ShmemPool.h"
+#include "mozilla/dom/MediaIPCUtils.h"
 #include "mozilla/gfx/Rect.h"
 
 namespace mozilla {
@@ -38,11 +39,13 @@ class RemoteVideoData final {
   RemoteVideoData() = default;
 
   RemoteVideoData(const MediaDataIPDL& aBase, const IntSize& aDisplay,
-                  RemoteImageHolder&& aImage, int32_t aFrameID)
+                  RemoteImageHolder&& aImage, int32_t aFrameID,
+                  Maybe<EncodeColor> aEncodeColor = Nothing())
       : mBase(aBase),
         mDisplay(aDisplay),
         mImage(std::move(aImage)),
-        mFrameID(aFrameID) {}
+        mFrameID(aFrameID),
+        mEncodeColor(std::move(aEncodeColor)) {}
 
   // This is equivalent to the old RemoteVideoDataIPDL object and is similar to
   // the RemoteAudioDataIPDL object. To ensure style consistency we use the IPDL
@@ -59,12 +62,16 @@ class RemoteVideoData final {
   int32_t& frameID() { return mFrameID; }
   const int32_t& frameID() const { return mFrameID; }
 
+  Maybe<EncodeColor>& encodeColor() { return mEncodeColor; }
+  const Maybe<EncodeColor>& encodeColor() const { return mEncodeColor; }
+
  private:
   friend struct IPC::ParamTraits<RemoteVideoData>;
   MediaDataIPDL mBase;
   IntSize mDisplay;
   RemoteImageHolder mImage;
   int32_t mFrameID;
+  Maybe<EncodeColor> mEncodeColor;
 };
 
 // Until bug 1572054 is resolved, we can't move our objects when using IPDL's
@@ -248,6 +255,7 @@ class ArrayOfRemoteMediaRawData {
     // This will be zero for audio.
     int32_t mHeight;
     Maybe<uint8_t> mTemporalLayerId;
+    Maybe<EncodeColor> mEncodeColor;
     Maybe<media::TimeInterval> mOriginalPresentationWindow;
     Maybe<CryptoInfo> mCryptoConfig;
   };
@@ -319,13 +327,15 @@ struct ParamTraits<mozilla::RemoteVideoData> {
     WriteParam(aWriter, std::move(aVar.mDisplay));
     WriteParam(aWriter, std::move(aVar.mImage));
     aWriter->WriteBytes(&aVar.mFrameID, 4);
+    WriteParam(aWriter, aVar.mEncodeColor);
   }
 
   static bool Read(IPC::MessageReader* aReader, paramType* aVar) {
     return ReadParam(aReader, &aVar->mBase) &&
            ReadParam(aReader, &aVar->mDisplay) &&
            ReadParam(aReader, &aVar->mImage) &&
-           aReader->ReadBytesInto(&aVar->mFrameID, 4);
+           aReader->ReadBytesInto(&aVar->mFrameID, 4) &&
+           ReadParam(aReader, &aVar->mEncodeColor);
   }
 };
 

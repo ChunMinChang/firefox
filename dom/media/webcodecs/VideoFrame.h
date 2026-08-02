@@ -193,6 +193,9 @@ class VideoFrame final : public nsISupports,
   const gfx::IntSize& NativeCodedSize() const { return mCodedSize; }
   const gfx::IntSize& NativeDisplaySize() const { return mDisplaySize; }
   const gfx::IntRect& NativeVisibleRect() const { return mVisibleRect; }
+  const VideoColorSpaceInternal& NativeColorSpace() const {
+    return mColorSpace;
+  }
   already_AddRefed<layers::Image> GetImage() const;
 
   // Track a WebGPU ExternalTexture as being imported from this video frame.
@@ -221,9 +224,9 @@ class VideoFrame final : public nsISupports,
     gfx::IntSize SampleSize(const Plane& aPlane) const;
     bool IsValidSize(const gfx::IntSize& aSize) const;
     Result<size_t, MediaResult> ByteCount(const gfx::IntSize& aSize) const;
+    bool IsYUV() const;
 
    private:
-    bool IsYUV() const;
     VideoPixelFormat mFormat;
   };
 

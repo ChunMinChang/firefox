@@ -181,6 +181,8 @@ IPCResult RemoteMediaDataEncoderParent::RecvEncode(
         return IPC_OK();
       }
 
+      frame->As<VideoData>()->mEncodeColor = data.encodeColor();
+
       frames.AppendElement(std::move(frame));
     }
   } else {

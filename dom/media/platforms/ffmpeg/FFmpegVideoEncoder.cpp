@@ -699,15 +699,16 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   mFrame->time_base =
       AVRational{.num = 1, .den = AssertedCast<int>(USECS_PER_S)};
 #  endif
-  // Provide fake pts, see header file.
-  if (mConfig.mCodec == CodecType::AV1) {
-    mFrame->pts = mFakePts;
-    mPtsMap.Insert(mFakePts, aSample->mTime.ToMicroseconds());
-    mFakePts += aSample->mDuration.ToMicroseconds();
-    mCurrentFramePts = aSample->mTime.ToMicroseconds();
-  } else {
-    mFrame->pts = aSample->mTime.ToMicroseconds();
-  }
+  const int64_t framePts = mFakePts;
+  mFrame->pts = framePts;
+  mFrameMap.Insert(
+      mFrame->pts,
+      FrameMetadata{sample->mTime.ToMicroseconds(),
+                    sample->mTimecode.ToMicroseconds(), sample->mEncodeColor});
+  const int64_t defaultDuration =
+      USECS_PER_S / std::max(mConfig.mFramerate, 1u);
+  mFakePts += std::max(
+      {sample->mDuration.ToMicroseconds(), defaultDuration, int64_t{1}});
 #  ifdef MOZ_FFMPEG_ENCODER_USE_DURATION_MAP
   if (mUseDurationMap) {
     mDurationMap.Insert(mFrame->pts, aSample->mDuration.ToMicroseconds());
@@ -733,7 +734,19 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   }
 
   // Now send the AVFrame to ffmpeg for encoding, same code for audio and video.
-  return FFmpegDataEncoder<LIBAV_VER>::EncodeWithModernAPIs();
+  auto result = FFmpegDataEncoder<LIBAV_VER>::EncodeWithModernAPIs();
+  if (result.isErr()) {
+    mFrameMap.Take(framePts);
+  }
+  return result;
+}
+
+Result<MediaDataEncoder::EncodedData, MediaResult>
+FFmpegVideoEncoder<LIBAV_VER>::DrainWithModernAPIs() {
+  auto result = FFmpegDataEncoder<LIBAV_VER>::DrainWithModernAPIs();
+  mFrameMap.Clear();
+  mDurationMap.Clear();
+  return result;
 }
 #endif  // if LIBAVCODEC_VERSION_MAJOR >= 58
 
@@ -803,7 +816,12 @@ FFmpegVideoEncoder<LIBAV_VER>::ToMediaRawData(AVPacket* aPacket) {
   // TODO(bug 1869560): The unit of pts, dts, and duration is time_base, which
   // is recommended to be the reciprocal of the frame rate, but we set it to
   // microsecond for now.
-  data->mTime = media::TimeUnit::FromMicroseconds(aPacket->pts);
+  Maybe<FrameMetadata> metadata = mFrameMap.Take(aPacket->pts);
+  if (!metadata) {
+    return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                           "No frame matching encoded packet"_ns));
+  }
+  data->mTime = media::TimeUnit::FromMicroseconds(metadata->mTime);
 #ifdef MOZ_FFMPEG_ENCODER_USE_DURATION_MAP
   Maybe<int64_t> duration;
   if (mUseDurationMap && (duration = mDurationMap.Take(aPacket->pts))) {
@@ -813,12 +831,8 @@ FFmpegVideoEncoder<LIBAV_VER>::ToMediaRawData(AVPacket* aPacket) {
   {
     data->mDuration = media::TimeUnit::FromMicroseconds(aPacket->duration);
   }
-  data->mTimecode = media::TimeUnit::FromMicroseconds(aPacket->dts);
-
-  if (mConfig.mCodec == CodecType::AV1) {
-    auto found = mPtsMap.Take(aPacket->pts);
-    data->mTime = media::TimeUnit::FromMicroseconds(found.value());
-  }
+  data->mTimecode = media::TimeUnit::FromMicroseconds(metadata->mTimecode);
+  data->mEncodeColor = metadata->mEncodeColor;
 
   if (mSVCInfo) {
     if (data->mKeyframe) {

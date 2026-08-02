@@ -224,7 +224,7 @@ RefPtr<PRemoteEncoderChild::EncodePromise> RemoteMediaDataEncoder::DoSendEncode(
                           videoSample->mTimecode, videoSample->mDuration,
                           videoSample->mKeyframe),
             videoSample->mDisplay, RemoteImageHolder(std::move(sd)),
-            videoSample->mFrameID));
+            videoSample->mFrameID, videoSample->mEncodeColor));
       }
     }
     LOGD("[{}] send {} video samples", fmt::ptr(this), videoSamples.Length());

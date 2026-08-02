@@ -21,6 +21,31 @@
 
 namespace IPC {
 template <>
+struct ParamTraits<mozilla::gfx::CICP::ColourPrimaries>
+    : public ContiguousEnumSerializerInclusive<
+          mozilla::gfx::CICP::ColourPrimaries,
+          static_cast<mozilla::gfx::CICP::ColourPrimaries>(0),
+          static_cast<mozilla::gfx::CICP::ColourPrimaries>(UINT8_MAX)> {};
+
+template <>
+struct ParamTraits<mozilla::gfx::CICP::TransferCharacteristics>
+    : public ContiguousEnumSerializerInclusive<
+          mozilla::gfx::CICP::TransferCharacteristics,
+          static_cast<mozilla::gfx::CICP::TransferCharacteristics>(0),
+          static_cast<mozilla::gfx::CICP::TransferCharacteristics>(UINT8_MAX)> {
+};
+
+template <>
+struct ParamTraits<mozilla::gfx::CICP::MatrixCoefficients>
+    : public ContiguousEnumSerializerInclusive<
+          mozilla::gfx::CICP::MatrixCoefficients,
+          static_cast<mozilla::gfx::CICP::MatrixCoefficients>(0),
+          static_cast<mozilla::gfx::CICP::MatrixCoefficients>(UINT8_MAX)> {};
+
+DEFINE_IPC_SERIALIZER_WITH_FIELDS(mozilla::EncodeColor, mPrimaries, mTransfer,
+                                  mMatrix, mRange);
+
+template <>
 struct ParamTraits<mozilla::VideoInfo> {
   typedef mozilla::VideoInfo paramType;
 

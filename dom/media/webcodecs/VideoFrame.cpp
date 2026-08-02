@@ -937,13 +937,7 @@ static VideoColorSpaceInternal PickColorSpace(
     const VideoPixelFormat& aFormat) {
   VideoColorSpaceInternal colorSpace;
   if (aInitColorSpace) {
-    colorSpace = VideoColorSpaceInternal(*aInitColorSpace);
-    // By spec, we MAY replace null members of aInitColorSpace with guessed
-    // values so we can always use these in CreateYUVImageFromBuffer.
-    if (IsYUVFormat(aFormat) && colorSpace.mMatrix.isNothing()) {
-      colorSpace.mMatrix.emplace(VideoMatrixCoefficients::Bt709);
-    }
-    return colorSpace;
+    return VideoColorSpaceInternal(*aInitColorSpace);
   }
 
   switch (aFormat) {
@@ -1055,6 +1049,10 @@ static Result<RefPtr<VideoFrame>, MediaResult> CreateVideoFrameFromBuffer(
 
   VideoColorSpaceInternal colorSpace =
       PickColorSpace(OptionalToPointer(aInit.mColorSpace), aInit.mFormat);
+  VideoColorSpaceInternal imageColorSpace = colorSpace;
+  if (IsYUVFormat(aInit.mFormat) && imageColorSpace.mMatrix.isNothing()) {
+    imageColorSpace.mMatrix.emplace(VideoMatrixCoefficients::Bt709);
+  }
 
   RefPtr<layers::Image> data = MOZ_TRY(aBuffer.ProcessFixedData(
       [&](const Span<uint8_t>& aData)
@@ -1073,7 +1071,7 @@ static Result<RefPtr<VideoFrame>, MediaResult> CreateVideoFrameFromBuffer(
           return Err(MediaResult(NS_ERROR_INVALID_ARG, "data is too small"_ns));
         }
 
-        return CreateImageFromBuffer(format, colorSpace, codedSize, aData);
+        return CreateImageFromBuffer(format, imageColorSpace, codedSize, aData);
       }));
 
   MOZ_ASSERT(data);

@@ -214,7 +214,7 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
 
   GMPUniquePtr<GMPVideoi420Frame> frame(static_cast<GMPVideoi420Frame*>(ftmp));
   const VideoData* sample(aSample->As<const VideoData>());
-  const uint64_t timestamp = sample->mTime.ToMicroseconds();
+  const uint64_t frameId = mNextFrameId++;
 
   const gfx::IntSize ySize = mConfig.mSize;
   const gfx::IntSize cbCrSize =
@@ -225,8 +225,8 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
   GMP_LOG_DEBUG(
       "[{}] GMPVideoEncoder::Encode -- request encode of frame @ {} y {}x{} "
       "stride={} cbCr {}x{} stride={}",
-      fmt::ptr(this), timestamp, ySize.width, ySize.height, yStride,
-      cbCrSize.width, cbCrSize.height, cbCrStride);
+      fmt::ptr(this), sample->mTime.ToMicroseconds(), ySize.width, ySize.height,
+      yStride, cbCrSize.width, cbCrSize.height, cbCrStride);
 
   err = frame->CreateEmptyFrame(ySize.width, ySize.height, yStride, cbCrStride,
                                 cbCrStride);
@@ -251,23 +251,25 @@ RefPtr<MediaDataEncoder::EncodePromise> GMPVideoEncoder::Encode(
                                           __func__);
   }
 
-  frame->SetTimestamp(timestamp);
+  frame->SetTimestamp(frameId);
 
   AutoTArray<GMPVideoFrameType, 1> frameType;
   frameType.AppendElement(sample->mKeyframe ? kGMPKeyFrame : kGMPDeltaFrame);
 
+  RefPtr<PendingEncode> pending = new PendingEncode(*sample);
+  mPendingEncodes.InsertOrUpdate(frameId, pending);
+
   nsTArray<uint8_t> codecSpecific;
   err = mGMP->Encode(std::move(frame), codecSpecific, frameType);
   if (NS_WARN_IF(err != GMPNoErr)) {
+    mPendingEncodes.Remove(frameId);
     GMP_LOG_ERROR("[{}] GMPVideoEncoder::Encode -- failed to queue frame",
                   fmt::ptr(this));
     return EncodePromise::CreateAndReject(NS_ERROR_DOM_MEDIA_FATAL_ERR,
                                           __func__);
   }
 
-  RefPtr<EncodePromise::Private> promise = new EncodePromise::Private(__func__);
-  mPendingEncodes.InsertOrUpdate(timestamp, promise);
-  return promise.forget();
+  return pending->mPromise;
 }
 
 // TODO(Bug 1984936): For realtime mode, resolve the promise after the first
@@ -348,8 +350,8 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
 
   uint64_t timestamp = aEncodedFrame->TimeStamp();
 
-  RefPtr<EncodePromise::Private> promise;
-  if (!mPendingEncodes.Remove(timestamp, getter_AddRefs(promise))) {
+  RefPtr<PendingEncode> pending;
+  if (!mPendingEncodes.Remove(timestamp, getter_AddRefs(pending))) {
     GMP_LOG_WARNING(
         "[{}] GMPVideoEncoder::Encoded -- no frame matching timestamp {}",
         fmt::ptr(this), timestamp);
@@ -363,7 +365,7 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
       NS_WARN_IF(aEncodedFrame->BufferType() != GMP_BufferLength32)) {
     GMP_LOG_ERROR("[{}] GMPVideoEncoder::Encoded -- bad/empty frame",
                   fmt::ptr(this));
-    promise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+    pending->mPromise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
     Teardown(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "Bad/empty frame"_ns),
              __func__);
     return;
@@ -374,7 +376,7 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
   // PlatformEncoderModule framework with WebRTC, fallback to this encoder and
   // actually render the video.
   if (NS_WARN_IF(!AdjustOpenH264NALUSequence(aEncodedFrame))) {
-    promise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+    pending->mPromise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
     Teardown(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "Bad frame data"_ns),
              __func__);
     return;
@@ -387,7 +389,7 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
     GMP_LOG_ERROR(
         "[{}] GMPVideoEncoder::Encoded -- failed to allocate {} buffer",
         fmt::ptr(this), encodedSize);
-    promise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+    pending->mPromise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
     Teardown(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "Init writer failed"_ns),
              __func__);
     return;
@@ -395,8 +397,10 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
 
   memcpy(writer->Data(), encodedData, encodedSize);
 
-  output->mTime =
-      media::TimeUnit::FromMicroseconds(static_cast<int64_t>(timestamp));
+  output->mTime = pending->mTime;
+  output->mTimecode = pending->mTimecode;
+  output->mDuration = pending->mDuration;
+  output->mEncodeColor = pending->mEncodeColor;
   output->mKeyframe = aEncodedFrame->FrameType() == kGMPKeyFrame;
 
   int32_t maybeTemporalLayerId = aEncodedFrame->GetTemporalLayerId();
@@ -431,7 +435,7 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
         GMP_LOG_ERROR(
             "[{}] GMPVideoEncoder::Encoded -- failed to convert to AVCC",
             fmt::ptr(this));
-        promise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
+        pending->mPromise->Reject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
         Teardown(
             MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR, "Convert AVCC failed"_ns),
             __func__);
@@ -442,7 +446,7 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
 
   EncodedData encodedDataSet(1);
   encodedDataSet.AppendElement(std::move(output));
-  promise->Resolve(std::move(encodedDataSet), __func__);
+  pending->mPromise->Resolve(std::move(encodedDataSet), __func__);
 
   if (mPendingEncodes.IsEmpty()) {
     mDrainPromise.ResolveIfExists(EncodedData(), __func__);
@@ -452,15 +456,19 @@ void GMPVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
 void GMPVideoEncoder::Dropped(uint64_t aTimestamp) {
   MOZ_ASSERT(IsOnGMPThread());
 
-  RefPtr<EncodePromise::Private> promise;
-  if (!mPendingEncodes.Remove(aTimestamp, getter_AddRefs(promise))) {
+  RefPtr<PendingEncode> pending;
+  if (!mPendingEncodes.Remove(aTimestamp, getter_AddRefs(pending))) {
     GMP_LOG_WARNING(
         "[{}] GMPVideoEncoder::Dropped -- no frame matching timestamp {}",
         fmt::ptr(this), aTimestamp);
     return;
   }
 
-  promise->Reject(NS_ERROR_DOM_MEDIA_DROPPED_BY_ENCODER_ERR, __func__);
+  pending->mPromise->Reject(NS_ERROR_DOM_MEDIA_DROPPED_BY_ENCODER_ERR,
+                            __func__);
+  if (mPendingEncodes.IsEmpty()) {
+    mDrainPromise.ResolveIfExists(EncodedData(), __func__);
+  }
 }
 
 void GMPVideoEncoder::Teardown(const MediaResult& aResult,
@@ -474,9 +482,9 @@ void GMPVideoEncoder::Teardown(const MediaResult& aResult,
   mEncodeBatchPromise.RejectIfExists(aResult, aCallSite);
   mEncodeBatchRequest.DisconnectIfExists();
 
-  PendingEncodePromises pendingEncodes = std::move(mPendingEncodes);
+  PendingEncodes pendingEncodes = std::move(mPendingEncodes);
   for (auto i = pendingEncodes.Iter(); !i.Done(); i.Next()) {
-    i.Data()->Reject(aResult, aCallSite);
+    i.Data()->mPromise->Reject(aResult, aCallSite);
   }
 
   mInitPromise.RejectIfExists(aResult, aCallSite);

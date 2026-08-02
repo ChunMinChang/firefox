@@ -41,6 +41,19 @@ class EncoderTemplate : public DOMEventTargetHelper {
   using OutputType = typename EncoderType::OutputType;
   using OutputCallbackType = typename EncoderType::OutputCallbackType;
 
+  struct VideoOutputConfig {
+    VideoOutputConfig(RefPtr<ConfigTypeInternal> aSourceConfig,
+                      const EncodeColor& aEncodeColor,
+                      RefPtr<MediaByteBuffer> aDescription)
+        : mSourceConfig(std::move(aSourceConfig)),
+          mEncodeColor(aEncodeColor),
+          mDescription(std::move(aDescription)) {}
+
+    RefPtr<ConfigTypeInternal> mSourceConfig;
+    EncodeColor mEncodeColor;
+    RefPtr<MediaByteBuffer> mDescription;
+  };
+
   /* ControlMessage classes */
  protected:
   class ConfigureMessage;
@@ -325,6 +338,7 @@ class EncoderTemplate : public DOMEventTargetHelper {
   // necessary to pass the new decoding configuration when the callback is
   // called. Read and modified on owner thread only.
   bool mOutputNewDecoderConfig = false;
+  Maybe<VideoOutputConfig> mLastEmittedVideoDecoderConfig;
 
   // Used to add a nsIAsyncShutdownBlocker on main thread to block
   // xpcom-shutdown before the underlying MediaDataEncoder is created. The

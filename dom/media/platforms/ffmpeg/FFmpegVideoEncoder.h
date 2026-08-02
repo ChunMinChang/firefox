@@ -25,7 +25,12 @@ class FFmpegVideoEncoder : public FFmpegDataEncoder<V> {};
 template <>
 class FFmpegVideoEncoder<LIBAV_VER> final
     : public FFmpegDataEncoder<LIBAV_VER> {
-  using PtsMap = SimpleMap<int64_t, int64_t, NoOpPolicy>;
+  struct FrameMetadata {
+    int64_t mTime;
+    int64_t mTimecode;
+    Maybe<EncodeColor> mEncodeColor;
+  };
+  using FrameMap = SimpleMap<int64_t, FrameMetadata, NoOpPolicy>;
 
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FFmpegVideoEncoder, final);
@@ -51,6 +56,7 @@ class FFmpegVideoEncoder<LIBAV_VER> final
 #if LIBAVCODEC_VERSION_MAJOR >= 58
   Result<EncodedData, MediaResult> EncodeInputWithModernAPIs(
       RefPtr<const MediaData> aSample) override;
+  Result<EncodedData, MediaResult> DrainWithModernAPIs() override;
 #endif
   virtual Result<RefPtr<MediaRawData>, MediaResult> ToMediaRawData(
       AVPacket* aPacket) override;
@@ -89,8 +95,7 @@ class FFmpegVideoEncoder<LIBAV_VER> final
   // the duration. Synthetize fake pts based on integrating over the duration of
   // input frames.
   int64_t mFakePts = 0;
-  int64_t mCurrentFramePts = 0;
-  PtsMap mPtsMap;
+  FrameMap mFrameMap;
   RefPtr<MediaByteBuffer> mLastExtraData;
 };
 

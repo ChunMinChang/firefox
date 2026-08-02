@@ -10,6 +10,7 @@
 #include "mozilla/Result.h"
 #include "mozilla/Variant.h"
 #include "mozilla/dom/ImageBitmapBinding.h"
+#include "mozilla/gfx/Types.h"
 #include "mozilla/ipc/IPCCore.h"
 
 namespace mozilla {
@@ -43,6 +44,15 @@ enum class BitrateMode { Constant, Variable };
 enum class ScalabilityMode { None, L1T2, L1T3 };
 
 enum class HardwarePreference { None, RequireHardware, RequireSoftware };
+
+struct EncodeColor {
+  gfx::CICP::ColourPrimaries mPrimaries = gfx::CICP::CP_UNSPECIFIED;
+  gfx::CICP::TransferCharacteristics mTransfer = gfx::CICP::TC_UNSPECIFIED;
+  gfx::CICP::MatrixCoefficients mMatrix = gfx::CICP::MC_UNSPECIFIED;
+  Maybe<gfx::ColorRange> mRange;
+
+  bool operator==(const EncodeColor&) const = default;
+};
 
 const char* YUVColorSpaceToString(const gfx::YUVColorSpace& aYUVColorSpace);
 const char* ColorSpace2ToString(const gfx::ColorSpace2& aColorSpace2);

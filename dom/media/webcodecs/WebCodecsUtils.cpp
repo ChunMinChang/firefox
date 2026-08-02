@@ -236,6 +236,142 @@ nsCString VideoColorSpaceInternal::ToString() const {
   return rv;
 }
 
+EncodeColor ToEncodeColor(const VideoColorSpaceInternal& aColorSpace) {
+  EncodeColor result;
+  if (aColorSpace.mPrimaries) {
+    switch (*aColorSpace.mPrimaries) {
+      case VideoColorPrimaries::Bt709:
+        result.mPrimaries = gfx::CICP::CP_BT709;
+        break;
+      case VideoColorPrimaries::Bt470bg:
+        result.mPrimaries = gfx::CICP::CP_BT470BG;
+        break;
+      case VideoColorPrimaries::Smpte170m:
+        result.mPrimaries = gfx::CICP::CP_BT601;
+        break;
+      case VideoColorPrimaries::Bt2020:
+        result.mPrimaries = gfx::CICP::CP_BT2020;
+        break;
+      case VideoColorPrimaries::Smpte432:
+        result.mPrimaries = gfx::CICP::CP_SMPTE432;
+        break;
+    }
+  }
+  if (aColorSpace.mTransfer) {
+    switch (*aColorSpace.mTransfer) {
+      case VideoTransferCharacteristics::Bt709:
+        result.mTransfer = gfx::CICP::TC_BT709;
+        break;
+      case VideoTransferCharacteristics::Smpte170m:
+        result.mTransfer = gfx::CICP::TC_BT601;
+        break;
+      case VideoTransferCharacteristics::Iec61966_2_1:
+        result.mTransfer = gfx::CICP::TC_SRGB;
+        break;
+      case VideoTransferCharacteristics::Linear:
+        result.mTransfer = gfx::CICP::TC_LINEAR;
+        break;
+      case VideoTransferCharacteristics::Pq:
+        result.mTransfer = gfx::CICP::TC_SMPTE2084;
+        break;
+      case VideoTransferCharacteristics::Hlg:
+        result.mTransfer = gfx::CICP::TC_HLG;
+        break;
+    }
+  }
+  if (aColorSpace.mMatrix) {
+    switch (*aColorSpace.mMatrix) {
+      case VideoMatrixCoefficients::Rgb:
+        result.mMatrix = gfx::CICP::MC_IDENTITY;
+        break;
+      case VideoMatrixCoefficients::Bt709:
+        result.mMatrix = gfx::CICP::MC_BT709;
+        break;
+      case VideoMatrixCoefficients::Bt470bg:
+        result.mMatrix = gfx::CICP::MC_BT470BG;
+        break;
+      case VideoMatrixCoefficients::Smpte170m:
+        result.mMatrix = gfx::CICP::MC_BT601;
+        break;
+      case VideoMatrixCoefficients::Bt2020_ncl:
+        result.mMatrix = gfx::CICP::MC_BT2020_NCL;
+        break;
+    }
+  }
+  if (aColorSpace.mFullRange) {
+    result.mRange.emplace(ToColorRange(*aColorSpace.mFullRange));
+  }
+  return result;
+}
+
+VideoColorSpaceInternal ToVideoColorSpace(const EncodeColor& aColorSpace) {
+  VideoColorSpaceInternal result;
+  switch (aColorSpace.mPrimaries) {
+    case gfx::CICP::CP_BT709:
+      result.mPrimaries.emplace(VideoColorPrimaries::Bt709);
+      break;
+    case gfx::CICP::CP_BT470BG:
+      result.mPrimaries.emplace(VideoColorPrimaries::Bt470bg);
+      break;
+    case gfx::CICP::CP_BT601:
+      result.mPrimaries.emplace(VideoColorPrimaries::Smpte170m);
+      break;
+    case gfx::CICP::CP_BT2020:
+      result.mPrimaries.emplace(VideoColorPrimaries::Bt2020);
+      break;
+    case gfx::CICP::CP_SMPTE432:
+      result.mPrimaries.emplace(VideoColorPrimaries::Smpte432);
+      break;
+    default:
+      break;
+  }
+  switch (aColorSpace.mTransfer) {
+    case gfx::CICP::TC_BT709:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Bt709);
+      break;
+    case gfx::CICP::TC_BT601:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Smpte170m);
+      break;
+    case gfx::CICP::TC_SRGB:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Iec61966_2_1);
+      break;
+    case gfx::CICP::TC_LINEAR:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Linear);
+      break;
+    case gfx::CICP::TC_SMPTE2084:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Pq);
+      break;
+    case gfx::CICP::TC_HLG:
+      result.mTransfer.emplace(VideoTransferCharacteristics::Hlg);
+      break;
+    default:
+      break;
+  }
+  switch (aColorSpace.mMatrix) {
+    case gfx::CICP::MC_IDENTITY:
+      result.mMatrix.emplace(VideoMatrixCoefficients::Rgb);
+      break;
+    case gfx::CICP::MC_BT709:
+      result.mMatrix.emplace(VideoMatrixCoefficients::Bt709);
+      break;
+    case gfx::CICP::MC_BT470BG:
+      result.mMatrix.emplace(VideoMatrixCoefficients::Bt470bg);
+      break;
+    case gfx::CICP::MC_BT601:
+      result.mMatrix.emplace(VideoMatrixCoefficients::Smpte170m);
+      break;
+    case gfx::CICP::MC_BT2020_NCL:
+      result.mMatrix.emplace(VideoMatrixCoefficients::Bt2020_ncl);
+      break;
+    default:
+      break;
+  }
+  if (aColorSpace.mRange) {
+    result.mFullRange.emplace(ToFullRange(*aColorSpace.mRange));
+  }
+  return result;
+}
+
 gfx::ColorRange ToColorRange(bool aIsFullRange) {
   return aIsFullRange ? gfx::ColorRange::FULL : gfx::ColorRange::LIMITED;
 }

@@ -307,6 +307,7 @@ Result<Ok, nsresult> EncoderTemplate<EncoderType>::ResetInternal(
   mState = CodecState::Unconfigured;
   mEncodeCounter = 0;
   mFlushCounter = 0;
+  mLastEmittedVideoDecoderConfig.reset();
 
   CancelPendingControlMessagesAndPromises(aResult);
   DestroyEncoderAgentIfAny();
@@ -396,10 +397,44 @@ void EncoderTemplate<VideoEncoderTraits>::OutputEncodedVideoData(
         EncodedDataToOutputType(GetParentObject(), data);
 
     RootedDictionary<EncodedVideoChunkMetadata> metadata(cx);
-    if (mOutputNewDecoderConfig) {
+    const EncodeColor encodeColor = data->mEncodeColor.valueOr(
+        EncodeColor{gfx::CICP::CP_BT709, gfx::CICP::TC_BT709,
+                    gfx::CICP::MC_BT709, Some(gfx::ColorRange::LIMITED)});
+    const auto descriptionsEqual = [](const RefPtr<MediaByteBuffer>& aLeft,
+                                      const RefPtr<MediaByteBuffer>& aRight) {
+      if (bool(aLeft) != bool(aRight)) {
+        return false;
+      }
+      return !aLeft || (aLeft->Length() == aRight->Length() &&
+                        ArrayEqual(aLeft->Elements(), aRight->Elements(),
+                                   aLeft->Length()));
+    };
+    const bool outputConfigChanged =
+        !mLastEmittedVideoDecoderConfig ||
+        !mLastEmittedVideoDecoderConfig->mSourceConfig->mCodec.Equals(
+            mActiveConfig->mCodec) ||
+        mLastEmittedVideoDecoderConfig->mSourceConfig->mWidth !=
+            mActiveConfig->mWidth ||
+        mLastEmittedVideoDecoderConfig->mSourceConfig->mHeight !=
+            mActiveConfig->mHeight ||
+        mLastEmittedVideoDecoderConfig->mSourceConfig->mDisplayWidth !=
+            mActiveConfig->mDisplayWidth ||
+        mLastEmittedVideoDecoderConfig->mSourceConfig->mDisplayHeight !=
+            mActiveConfig->mDisplayHeight ||
+        mLastEmittedVideoDecoderConfig->mSourceConfig->mHardwareAcceleration !=
+            mActiveConfig->mHardwareAcceleration ||
+        !(mLastEmittedVideoDecoderConfig->mEncodeColor == encodeColor) ||
+        !descriptionsEqual(mLastEmittedVideoDecoderConfig->mDescription,
+                           data->mExtraData);
+
+    // https://w3c.github.io/webcodecs/#output-encodedvideochunks
+    if (mOutputNewDecoderConfig || outputConfigChanged) {
       RootedDictionary<VideoDecoderConfig> decoderConfig(cx);
       EncoderConfigToDecoderConfig(cx, data, *mActiveConfig, decoderConfig);
       metadata.mDecoderConfig.Construct(std::move(decoderConfig));
+      mLastEmittedVideoDecoderConfig.reset();
+      mLastEmittedVideoDecoderConfig.emplace(mActiveConfig, encodeColor,
+                                             data->mExtraData);
       mOutputNewDecoderConfig = false;
       LOG("New config passed to output callback");
     }

@@ -605,6 +605,8 @@ class VideoData : public MediaData {
 
   uint32_t mFrameID;
 
+  Maybe<EncodeColor> mEncodeColor;
+
   VideoData(int64_t aOffset, const media::TimeUnit& aTime,
             const media::TimeUnit& aDuration, bool aKeyframe,
             const media::TimeUnit& aTimecode, IntSize aDisplay,
@@ -767,6 +769,8 @@ class MediaRawData final : public MediaData {
 
   // Used to indicate the id of the temporal scalability layer.
   Maybe<uint8_t> mTemporalLayerId;
+
+  Maybe<EncodeColor> mEncodeColor;
 
   // May contain the original start time and duration of the frames.
   // mOriginalPresentationWindow.mStart would always be less or equal to mTime

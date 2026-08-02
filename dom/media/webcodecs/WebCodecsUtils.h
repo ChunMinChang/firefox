@@ -253,6 +253,10 @@ struct VideoColorSpaceInternal {
   Maybe<VideoTransferCharacteristics> mTransfer;
 };
 
+EncodeColor ToEncodeColor(const VideoColorSpaceInternal& aColorSpace);
+
+VideoColorSpaceInternal ToVideoColorSpace(const EncodeColor& aColorSpace);
+
 gfx::ColorRange ToColorRange(bool aIsFullRange);
 
 gfx::YUVColorSpace ToColorSpace(VideoMatrixCoefficients aMatrix);

@@ -148,7 +148,7 @@ bool ArrayOfRemoteMediaRawData::Fill(
     mSamples.AppendElement(RemoteMediaRawData{
         MediaDataIPDL(entry->mOffset, entry->mTime, entry->mTimecode,
                       entry->mDuration, entry->mKeyframe),
-        entry->mEOS, height, entry->mTemporalLayerId,
+        entry->mEOS, height, entry->mTemporalLayerId, entry->mEncodeColor,
         entry->mOriginalPresentationWindow,
         entry->mCrypto.IsEncrypted() && entry->mShouldCopyCryptoToRemoteRawData
             ? Some(CryptoInfo{
@@ -217,6 +217,7 @@ already_AddRefed<MediaRawData> ArrayOfRemoteMediaRawData::ElementAt(
   rawData->mKeyframe = sample.mBase.keyframe();
   rawData->mEOS = sample.mEOS;
   rawData->mTemporalLayerId = sample.mTemporalLayerId;
+  rawData->mEncodeColor = sample.mEncodeColor;
   rawData->mExtraData = mExtraDatas.MediaByteBufferAt(aIndex);
   if (sample.mCryptoConfig) {
     CryptoSample& cypto = rawData->GetWritableCrypto();
@@ -265,7 +266,8 @@ already_AddRefed<MediaRawData> ArrayOfRemoteMediaRawData::ElementAt(
 namespace IPC {
 IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(
     mozilla::ArrayOfRemoteMediaRawData::RemoteMediaRawData, mBase, mEOS,
-    mHeight, mTemporalLayerId, mOriginalPresentationWindow, mCryptoConfig);
+    mHeight, mTemporalLayerId, mEncodeColor, mOriginalPresentationWindow,
+    mCryptoConfig);
 }
 
 namespace mozilla {
