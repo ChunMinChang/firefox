@@ -123,6 +123,12 @@ ffmpeg -f lavfi -i testsrc=rate=10:n=1 -t 1 -pix_fmt yuv420p -vcodec h264 -tune 
 ffmpeg -f lavfi -i testsrc=rate=10:n=1 -t 1 -pix_fmt yuv420p -vcodec h264 -tune zerolatency -f h264 h264.annexb
 ```
 
+### h264-(full|limited)-range.annexb
+```
+ffmpeg -f lavfi -i testsrc2=size=64x64:rate=1 -frames:v 1 -an -c:v libx264 -profile:v baseline -level:v 1.0 -pix_fmt yuv420p -color_range pc -color_primaries bt709 -color_trc bt709 -colorspace bt709 -x264-params fullrange=on:keyint=1:min-keyint=1:scenecut=0 -f h264 h264-full-range.annexb
+ffmpeg -f lavfi -i testsrc2=size=64x64:rate=1 -frames:v 1 -an -c:v libx264 -profile:v baseline -level:v 1.0 -pix_fmt yuv420p -color_range tv -color_primaries bt709 -color_trc bt709 -colorspace bt709 -x264-params fullrange=off:keyint=1:min-keyint=1:scenecut=0 -f h264 h264-limited-range.annexb
+```
+
 ### h264_sei.annexb
 ```
 ffmpeg -f lavfi -i testsrc=rate=10:n=1 -t 1 -pix_fmt yuv420p -vcodec h264 -tune zerolatency -x264-params "open-gop=1:keyint=5:bframes=3" -f h264 h264_sei.annexb
