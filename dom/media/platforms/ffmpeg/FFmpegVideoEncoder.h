@@ -95,6 +95,7 @@ class FFmpegVideoEncoder<LIBAV_VER> final
   // the duration. Synthetize fake pts based on integrating over the duration of
   // input frames.
   int64_t mFakePts = 0;
+  Maybe<EncodeColor> mLastSignaledColor;
   FrameMap mFrameMap;
   RefPtr<MediaByteBuffer> mLastExtraData;
 };

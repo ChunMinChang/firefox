@@ -132,6 +132,12 @@ typedef struct VPxEncoderContext {
     int drop_threshold;
     int noise_sensitivity;
     int vpx_cs;
+    int colorspace_initialized;
+    enum vpx_color_space signaled_colorspace;
+#if VPX_ENCODER_ABI_VERSION >= 11
+    int color_range_initialized;
+    enum vpx_color_range signaled_color_range;
+#endif
     float level;
     int row_mt;
     int tune_content;
@@ -897,15 +903,17 @@ static int set_pix_fmt(AVCodecContext *avctx, vpx_codec_caps_t codec_caps,
     return AVERROR_INVALIDDATA;
 }
 
-static int set_colorspace(AVCodecContext *avctx)
+static int set_colorspace(AVCodecContext *avctx,
+                          enum AVColorSpace colorspace)
 {
     enum vpx_color_space vpx_cs;
     VPxContext *ctx = avctx->priv_data;
+    int res;
 
     if (ctx->vpx_cs) {
         vpx_cs = ctx->vpx_cs;
     } else {
-        switch (avctx->colorspace) {
+        switch (colorspace) {
         case AVCOL_SPC_RGB:
             av_log(avctx, AV_LOG_ERROR,
                    "RGB colorspace is not compatible with pixel format %s.\n",
@@ -920,29 +928,50 @@ static int set_colorspace(AVCodecContext *avctx)
         case AVCOL_SPC_BT2020_NCL:  vpx_cs = VPX_CS_BT_2020;   break;
         default:
             av_log(avctx, AV_LOG_WARNING, "Unsupported colorspace (%d)\n",
-                   avctx->colorspace);
-            return 0;
+                   colorspace);
+            vpx_cs = VPX_CS_UNKNOWN;
+            break;
         }
     }
-    codecctl_int(avctx, VP9E_SET_COLOR_SPACE, vpx_cs);
-    return 0;
+
+    if (ctx->colorspace_initialized && ctx->signaled_colorspace == vpx_cs)
+        return 0;
+    res = codecctl_int(avctx, VP9E_SET_COLOR_SPACE, vpx_cs);
+    if (res >= 0) {
+        ctx->signaled_colorspace = vpx_cs;
+        ctx->colorspace_initialized = 1;
+    }
+    return res;
 }
 
 #if VPX_ENCODER_ABI_VERSION >= 11
-static void set_color_range(AVCodecContext *avctx)
+static int set_color_range(AVCodecContext *avctx,
+                           enum AVColorRange color_range)
 {
     enum vpx_color_range vpx_cr;
-    switch (avctx->color_range) {
+    VPxContext *ctx = avctx->priv_data;
+    int res;
+
+    switch (color_range) {
     case AVCOL_RANGE_UNSPECIFIED:
     case AVCOL_RANGE_MPEG:       vpx_cr = VPX_CR_STUDIO_RANGE; break;
     case AVCOL_RANGE_JPEG:       vpx_cr = VPX_CR_FULL_RANGE;   break;
     default:
         av_log(avctx, AV_LOG_WARNING, "Unsupported color range (%d)\n",
-               avctx->color_range);
-        return;
+               color_range);
+        vpx_cr = VPX_CR_STUDIO_RANGE;
+        break;
     }
 
-    codecctl_int(avctx, VP9E_SET_COLOR_RANGE, vpx_cr);
+    if (ctx->color_range_initialized &&
+        ctx->signaled_color_range == vpx_cr)
+        return 0;
+    res = codecctl_int(avctx, VP9E_SET_COLOR_RANGE, vpx_cr);
+    if (res >= 0) {
+        ctx->signaled_color_range = vpx_cr;
+        ctx->color_range_initialized = 1;
+    }
+    return res;
 }
 #endif
 #endif
@@ -1286,11 +1315,11 @@ static av_cold int vpx_init(AVCodecContext *avctx,
             codecctl_int(avctx, VP9E_SET_FRAME_PARALLEL_DECODING, ctx->frame_parallel);
         if (ctx->aq_mode >= 0)
             codecctl_int(avctx, VP9E_SET_AQ_MODE, ctx->aq_mode);
-        res = set_colorspace(avctx);
+        res = set_colorspace(avctx, avctx->colorspace);
         if (res < 0)
             return res;
 #if VPX_ENCODER_ABI_VERSION >= 11
-        set_color_range(avctx);
+        set_color_range(avctx, avctx->color_range);
 #endif
 #if VPX_ENCODER_ABI_VERSION >= 12
         codecctl_int(avctx, VP9E_SET_TARGET_LEVEL, ctx->level < 0 ? 255 : lrint(ctx->level * 10));
@@ -1791,13 +1820,27 @@ static int vpx_encode(AVCodecContext *avctx, AVPacket *pkt,
             rawimg_alpha->stride[VPX_PLANE_Y] = frame->linesize[3];
         }
         timestamp                   = frame->pts;
+#if CONFIG_LIBVPX_VP9_ENCODER
+        if (avctx->codec_id == AV_CODEC_ID_VP9) {
+            res = set_colorspace(avctx, frame->colorspace);
+            if (res < 0)
+                return res;
+#if VPX_ENCODER_ABI_VERSION >= 11
+            res = set_color_range(avctx, frame->color_range);
+            if (res < 0)
+                return res;
+#endif
+        }
+#endif
 #if VPX_IMAGE_ABI_VERSION >= 4
         switch (frame->color_range) {
-        case AVCOL_RANGE_MPEG:
-            rawimg->range = VPX_CR_STUDIO_RANGE;
-            break;
         case AVCOL_RANGE_JPEG:
             rawimg->range = VPX_CR_FULL_RANGE;
+            break;
+        case AVCOL_RANGE_UNSPECIFIED:
+        case AVCOL_RANGE_MPEG:
+        default:
+            rawimg->range = VPX_CR_STUDIO_RANGE;
             break;
         }
 #endif

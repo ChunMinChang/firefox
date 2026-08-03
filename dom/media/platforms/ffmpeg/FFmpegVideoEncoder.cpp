@@ -121,6 +121,55 @@ struct H264LiteralSetting {
   H264Setting get() const { return {mValue, mString.AsString()}; }
 };
 
+#if LIBAVCODEC_VERSION_MAJOR >= 58
+static AVColorSpace ToAVColorSpace(gfx::CICP::MatrixCoefficients aMatrix) {
+  return aMatrix == gfx::CICP::MC_IDENTITY ? AVCOL_SPC_UNSPECIFIED
+                                           : static_cast<AVColorSpace>(aMatrix);
+}
+
+static AVColorRange ToAVColorRange(const Maybe<gfx::ColorRange>& aRange) {
+  if (!aRange) {
+    return AVCOL_RANGE_UNSPECIFIED;
+  }
+  return *aRange == gfx::ColorRange::FULL ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
+}
+
+static gfx::CICP::MatrixCoefficients ToVP9Matrix(
+    gfx::CICP::MatrixCoefficients aMatrix) {
+  switch (aMatrix) {
+    case gfx::CICP::MC_BT709:
+    case gfx::CICP::MC_UNSPECIFIED:
+    case gfx::CICP::MC_RESERVED_MIN:
+    case gfx::CICP::MC_BT470BG:
+    case gfx::CICP::MC_BT601:
+    case gfx::CICP::MC_SMPTE240:
+    case gfx::CICP::MC_BT2020_NCL:
+      return aMatrix;
+    default:
+      return gfx::CICP::MC_UNSPECIFIED;
+  }
+}
+
+static Maybe<EncodeColor> SignaledColor(CodecType aCodec,
+                                        const EncodeColor& aColor) {
+  EncodeColor color = aColor;
+  color.mMatrix = color.mMatrix == gfx::CICP::MC_IDENTITY
+                      ? gfx::CICP::MC_UNSPECIFIED
+                      : color.mMatrix;
+  color.mRange = Some(color.mRange.valueOr(gfx::ColorRange::LIMITED));
+  if (aCodec == CodecType::AV1) {
+    return Some(color);
+  }
+  if (aCodec == CodecType::VP9) {
+    color.mPrimaries = gfx::CICP::CP_UNSPECIFIED;
+    color.mTransfer = gfx::CICP::TC_UNSPECIFIED;
+    color.mMatrix = ToVP9Matrix(color.mMatrix);
+    return Some(color);
+  }
+  return Nothing();
+}
+#endif
+
 #if LIBAVCODEC_VERSION_MAJOR < 62
 static constexpr H264LiteralSetting H264Profiles[]{
     {FF_PROFILE_H264_BASELINE, "baseline"_ns},
@@ -346,6 +395,7 @@ bool FFmpegVideoEncoder<LIBAV_VER>::ShouldTryHardware() const {
 }
 
 MediaResult FFmpegVideoEncoder<LIBAV_VER>::InitEncoder() {
+  mLastSignaledColor.reset();
   MediaResult result(NS_ERROR_DOM_MEDIA_NOT_SUPPORTED_ERR);
   if (ShouldTryHardware()) {
     result = InitEncoderInternal(/* aHardware */ true);
@@ -653,8 +703,18 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   mFrame->format = mCodecContext->pix_fmt;
   mFrame->width = static_cast<int>(mConfig.mSize.width);
   mFrame->height = static_cast<int>(mConfig.mSize.height);
-  mFrame->pict_type =
-      sample->mKeyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+  const EncodeColor color = sample->mEncodeColor.valueOr(EncodeColor{});
+  mFrame->color_primaries = static_cast<AVColorPrimaries>(color.mPrimaries);
+  mFrame->color_trc =
+      static_cast<AVColorTransferCharacteristic>(color.mTransfer);
+  mFrame->colorspace = ToAVColorSpace(color.mMatrix);
+  mFrame->color_range = ToAVColorRange(color.mRange);
+
+  Maybe<EncodeColor> signaledColor = SignaledColor(mConfig.mCodec, color);
+  const bool colorChanged = signaledColor && mLastSignaledColor &&
+                            signaledColor.ref() != mLastSignaledColor.ref();
+  mFrame->pict_type = sample->mKeyframe || colorChanged ? AV_PICTURE_TYPE_I
+                                                        : AV_PICTURE_TYPE_NONE;
 
   // Allocate AVFrame data.
   if (int ret = mLib->av_frame_get_buffer(mFrame, 0); ret < 0) {
@@ -724,8 +784,8 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   // such as AV1 via libaom however requires manual frame tagging.
   if (SvcEnabled() && mConfig.mCodec != CodecType::VP8 &&
       mConfig.mCodec != CodecType::VP9) {
-    if (aSample->mKeyframe) {
-      FFMPEGV_LOG("Key frame requested, reseting temporal layer id");
+    if (mFrame->pict_type == AV_PICTURE_TYPE_I) {
+      FFMPEGV_LOG("Key frame input, resetting temporal layer id");
       mSVCInfo->ResetTemporalLayerId();
     }
     nsFmtCString str("{}", mSVCInfo->CurrentTemporalLayerId());
@@ -737,6 +797,8 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   auto result = FFmpegDataEncoder<LIBAV_VER>::EncodeWithModernAPIs();
   if (result.isErr()) {
     mFrameMap.Take(framePts);
+  } else if (signaledColor) {
+    mLastSignaledColor = std::move(signaledColor);
   }
   return result;
 }

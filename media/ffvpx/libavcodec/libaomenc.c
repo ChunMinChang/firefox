@@ -139,6 +139,11 @@ typedef struct AOMEncoderContext {
     int enable_diff_wtd_comp;
     int enable_dist_wtd_comp;
     int enable_dual_filter;
+    int color_config_initialized;
+    enum AVColorPrimaries color_primaries;
+    enum AVColorTransferCharacteristic color_trc;
+    enum AVColorSpace colorspace;
+    enum AVColorRange color_range;
     AVDictionary *svc_parameters;
     AVDictionary *aom_params;
 } AOMContext;
@@ -571,20 +576,54 @@ static int set_pix_fmt(AVCodecContext *avctx, aom_codec_caps_t codec_caps,
     return AVERROR_INVALIDDATA;
 }
 
-static void set_color_range(AVCodecContext *avctx)
+static int set_color_range(AVCodecContext *avctx, enum AVColorRange color_range)
 {
     aom_color_range_t aom_cr;
-    switch (avctx->color_range) {
+    switch (color_range) {
     case AVCOL_RANGE_UNSPECIFIED:
     case AVCOL_RANGE_MPEG:       aom_cr = AOM_CR_STUDIO_RANGE; break;
     case AVCOL_RANGE_JPEG:       aom_cr = AOM_CR_FULL_RANGE;   break;
     default:
         av_log(avctx, AV_LOG_WARNING, "Unsupported color range (%d)\n",
-               avctx->color_range);
-        return;
+               color_range);
+        aom_cr = AOM_CR_STUDIO_RANGE;
+        break;
     }
 
-    codecctl_int(avctx, AV1E_SET_COLOR_RANGE, aom_cr);
+    return codecctl_int(avctx, AV1E_SET_COLOR_RANGE, aom_cr);
+}
+
+static int set_color_config(AVCodecContext *avctx,
+                            enum AVColorPrimaries color_primaries,
+                            enum AVColorTransferCharacteristic color_trc,
+                            enum AVColorSpace colorspace,
+                            enum AVColorRange color_range)
+{
+    AOMContext *ctx = avctx->priv_data;
+    int res;
+
+    if (ctx->color_config_initialized &&
+        ctx->color_primaries == color_primaries &&
+        ctx->color_trc == color_trc &&
+        ctx->colorspace == colorspace &&
+        ctx->color_range == color_range)
+        return 0;
+
+    if ((res = codecctl_int(avctx, AV1E_SET_COLOR_PRIMARIES,
+                            color_primaries)) < 0 ||
+        (res = codecctl_int(avctx, AV1E_SET_MATRIX_COEFFICIENTS,
+                            colorspace)) < 0 ||
+        (res = codecctl_int(avctx, AV1E_SET_TRANSFER_CHARACTERISTICS,
+                            color_trc)) < 0 ||
+        (res = set_color_range(avctx, color_range)) < 0)
+        return res;
+
+    ctx->color_primaries = color_primaries;
+    ctx->color_trc = color_trc;
+    ctx->colorspace = colorspace;
+    ctx->color_range = color_range;
+    ctx->color_config_initialized = 1;
+    return 0;
 }
 
 static int count_uniform_tiling(int dim, int sb_size, int tiles_log2)
@@ -988,20 +1027,16 @@ static av_cold int aom_init(AVCodecContext *avctx,
     if (ctx->tune >= 0)
         codecctl_int(avctx, AOME_SET_TUNING, ctx->tune);
 
-    if (desc->flags & AV_PIX_FMT_FLAG_RGB) {
-        codecctl_int(avctx, AV1E_SET_COLOR_PRIMARIES, AVCOL_PRI_BT709);
-        codecctl_int(avctx, AV1E_SET_MATRIX_COEFFICIENTS, AVCOL_SPC_RGB);
-        codecctl_int(avctx, AV1E_SET_TRANSFER_CHARACTERISTICS, AVCOL_TRC_IEC61966_2_1);
-    } else {
-        codecctl_int(avctx, AV1E_SET_COLOR_PRIMARIES, avctx->color_primaries);
-        codecctl_int(avctx, AV1E_SET_MATRIX_COEFFICIENTS, avctx->colorspace);
-        codecctl_int(avctx, AV1E_SET_TRANSFER_CHARACTERISTICS, avctx->color_trc);
-    }
+    if (desc->flags & AV_PIX_FMT_FLAG_RGB)
+        set_color_config(avctx, AVCOL_PRI_BT709, AVCOL_TRC_IEC61966_2_1,
+                         AVCOL_SPC_RGB, avctx->color_range);
+    else
+        set_color_config(avctx, avctx->color_primaries, avctx->color_trc,
+                         avctx->colorspace, avctx->color_range);
     if (ctx->aq_mode >= 0)
         codecctl_int(avctx, AV1E_SET_AQ_MODE, ctx->aq_mode);
     if (ctx->frame_parallel >= 0)
         codecctl_int(avctx, AV1E_SET_FRAME_PARALLEL_DECODING, ctx->frame_parallel);
-    set_color_range(avctx);
 
     codecctl_int(avctx, AV1E_SET_SUPERBLOCK_SIZE, ctx->superblock_size);
     if (ctx->uniform_tiles) {
@@ -1364,12 +1399,23 @@ static int aom_encode(AVCodecContext *avctx, AVPacket *pkt,
             duration = 1;
         }
 
+        if (!(av_pix_fmt_desc_get(avctx->pix_fmt)->flags &
+              AV_PIX_FMT_FLAG_RGB)) {
+            res = set_color_config(avctx, frame->color_primaries,
+                                   frame->color_trc, frame->colorspace,
+                                   frame->color_range);
+            if (res < 0)
+                return res;
+        }
+
         switch (frame->color_range) {
-        case AVCOL_RANGE_MPEG:
-            rawimg->range = AOM_CR_STUDIO_RANGE;
-            break;
         case AVCOL_RANGE_JPEG:
             rawimg->range = AOM_CR_FULL_RANGE;
+            break;
+        case AVCOL_RANGE_UNSPECIFIED:
+        case AVCOL_RANGE_MPEG:
+        default:
+            rawimg->range = AOM_CR_STUDIO_RANGE;
             break;
         }
 
