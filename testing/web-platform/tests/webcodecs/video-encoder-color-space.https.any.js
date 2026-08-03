@@ -27,12 +27,63 @@ const PARTIAL_COLOR_SPACE = {
   fullRange: null,
 };
 
-const RGB_COMPATIBILITY_COLOR_SPACE = {
-  primaries: 'bt709',
-  transfer: 'bt709',
-  matrix: 'bt709',
-  fullRange: false,
-};
+const RGB_COLOR_CASES = [
+  {
+    name: 'sRGB',
+    input: undefined,
+    encoded: {
+      primaries: 'bt709',
+      transfer: 'iec61966-2-1',
+      matrix: 'smpte170m',
+      fullRange: false,
+    },
+  },
+  {
+    name: 'Display-P3',
+    input: {
+      primaries: 'smpte432',
+      transfer: 'iec61966-2-1',
+      matrix: 'rgb',
+      fullRange: true,
+    },
+    encoded: {
+      primaries: 'smpte432',
+      transfer: 'iec61966-2-1',
+      matrix: 'smpte170m',
+      fullRange: false,
+    },
+  },
+  {
+    name: 'BT.2020/PQ',
+    input: {
+      primaries: 'bt2020',
+      transfer: 'pq',
+      matrix: 'rgb',
+      fullRange: true,
+    },
+    encoded: {
+      primaries: 'bt2020',
+      transfer: 'pq',
+      matrix: 'smpte170m',
+      fullRange: false,
+    },
+  },
+  {
+    name: 'BT.2020/HLG',
+    input: {
+      primaries: 'bt2020',
+      transfer: 'hlg',
+      matrix: 'rgb',
+      fullRange: true,
+    },
+    encoded: {
+      primaries: 'bt2020',
+      transfer: 'hlg',
+      matrix: 'smpte170m',
+      fullRange: false,
+    },
+  },
+];
 
 function codecConfig() {
   return {
@@ -70,15 +121,30 @@ function makeI420Frame(width, height, colorSpace, timestamp = 0) {
   });
 }
 
-function makeRGBAFrame(width, height, timestamp = 0) {
+function makeRGBAFrame(width, height, timestamp = 0, colorSpace = undefined) {
   const buf = new Uint8Array(width * height * 4);
-  buf.fill(128);
-  return new VideoFrame(buf, {
+  const colors = [
+    [225, 40, 30, 255],
+    [30, 210, 50, 255],
+    [40, 60, 220, 255],
+    [220, 200, 40, 255],
+  ];
+  for (let y = 0; y < height; ++y) {
+    for (let x = 0; x < width; ++x) {
+      const quadrant = (y >= height / 2 ? 2 : 0) + (x >= width / 2 ? 1 : 0);
+      buf.set(colors[quadrant], (y * width + x) * 4);
+    }
+  }
+  const init = {
     format: 'RGBA',
     codedWidth: width,
     codedHeight: height,
     timestamp,
-  });
+  };
+  if (colorSpace !== undefined) {
+    init.colorSpace = colorSpace;
+  }
+  return new VideoFrame(buf, init);
 }
 
 function assertColorSpace(actual, expected, message = '') {
@@ -105,6 +171,83 @@ function makeEncoder(t, output) {
 function encodeAndClose(encoder, frame, options) {
   encoder.encode(frame, options);
   frame.close();
+}
+
+async function copyFrameToRGBA(frame) {
+  const options = {format: 'RGBA', colorSpace: 'srgb'};
+  const pixels = new Uint8Array(frame.allocationSize(options));
+  await frame.copyTo(pixels, options);
+  return pixels;
+}
+
+function assertSampledPixels(actual, expected, width, height, message) {
+  const points = [
+    [width >> 2, height >> 2],
+    [3 * width >> 2, height >> 2],
+    [width >> 2, 3 * height >> 2],
+    [3 * width >> 2, 3 * height >> 2],
+  ];
+  const channels = ['R', 'G', 'B', 'A'];
+  for (const [x, y] of points) {
+    const offset = (y * width + x) * 4;
+    for (let channel = 0; channel < 4; ++channel) {
+      assert_approx_equals(
+          actual[offset + channel], expected[offset + channel],
+          channel === 3 ? 1 : 32,
+          message + ' (' + x + ', ' + y + ') ' + channels[channel]);
+    }
+  }
+}
+
+async function encodeAndDecodeRGBA(
+    t, config, colorCase, stripDecoderColorSpace = false) {
+  let decodedFrame;
+  const decoder = new VideoDecoder({
+    output(frame) {
+      assert_equals(decodedFrame, undefined, 'one decoded frame');
+      decodedFrame = frame;
+    },
+    error: t.unreached_func('decoder error'),
+  });
+  t.add_cleanup(() => {
+    if (decoder.state !== 'closed') {
+      decoder.close();
+    }
+    decodedFrame?.close();
+  });
+
+  let emittedColorSpace;
+  const encoder = makeEncoder(t, (chunk, metadata) => {
+    if (metadata.decoderConfig) {
+      assert_equals(emittedColorSpace, undefined, 'one decoder config');
+      emittedColorSpace = metadata.decoderConfig.colorSpace;
+      const decoderConfig = {
+        ...metadata.decoderConfig,
+        hardwareAcceleration: 'prefer-software',
+      };
+      if (stripDecoderColorSpace) {
+        delete decoderConfig.colorSpace;
+      }
+      decoder.configure(decoderConfig);
+    }
+    decoder.decode(chunk);
+  });
+  encoder.configure(config);
+
+  const sourceFrame = makeRGBAFrame(
+      config.width, config.height, 0, colorCase.input);
+  const expectedPixels = await copyFrameToRGBA(sourceFrame);
+  encodeAndClose(encoder, sourceFrame, {keyFrame: true});
+  await encoder.flush();
+  await decoder.flush();
+
+  assert_not_equals(decodedFrame, undefined, 'decoded frame produced');
+  assertColorSpace(emittedColorSpace, colorCase.encoded, 'decoder config');
+  assertColorSpace(decodedFrame.colorSpace, colorCase.encoded, 'decoded frame');
+  const actualPixels = await copyFrameToRGBA(decodedFrame);
+  assertSampledPixels(
+      actualPixels, expectedPixels, config.width, config.height,
+      colorCase.name);
 }
 
 promise_test(async t => {
@@ -262,16 +405,50 @@ promise_test(async t => {
   const config = makeConfig();
   await checkEncoderSupport(t, config);
 
-  let emitted;
+  const emitted = [];
   const encoder = makeEncoder(t, (chunk, metadata) => {
-    if (metadata.decoderConfig && emitted === undefined) {
-      emitted = metadata.decoderConfig.colorSpace;
+    if (metadata.decoderConfig) {
+      emitted.push(metadata.decoderConfig.colorSpace);
     }
   });
 
   encoder.configure(config);
-  encodeAndClose(encoder, makeRGBAFrame(config.width, config.height), {keyFrame: true});
+  for (let i = 0; i < RGB_COLOR_CASES.length; ++i) {
+    const colorCase = RGB_COLOR_CASES[i];
+    encodeAndClose(
+        encoder,
+        makeRGBAFrame(config.width, config.height, i, colorCase.input),
+        i === 0 ? {keyFrame: true} : undefined);
+  }
   await encoder.flush();
 
-  assertColorSpace(emitted, RGB_COMPATIBILITY_COLOR_SPACE);
-}, `VideoEncoder preserves the existing RGB compatibility colorSpace (${location.search})`);
+  assert_equals(emitted.length, RGB_COLOR_CASES.length);
+  for (let i = 0; i < emitted.length; ++i) {
+    assertColorSpace(emitted[i], RGB_COLOR_CASES[i].encoded,
+                     RGB_COLOR_CASES[i].name);
+  }
+}, 'VideoEncoder describes RGB conversion output (' + location.search + ')');
+
+promise_test(async t => {
+  const config = makeConfig(64, 64);
+  config.bitrate = 4000000;
+  await checkEncoderSupport(t, config);
+
+  for (const colorCase of RGB_COLOR_CASES) {
+    await encodeAndDecodeRGBA(t, config, colorCase);
+  }
+}, 'VideoEncoder RGB metadata describes decoded pixels (' + location.search +
+       ')');
+
+if (location.search === '?av1') {
+  promise_test(async t => {
+    const config = makeConfig(64, 64);
+    config.bitrate = 4000000;
+    await checkEncoderSupport(t, config);
+
+    for (const colorCase of RGB_COLOR_CASES) {
+      await encodeAndDecodeRGBA(t, config, colorCase, true);
+    }
+  }, 'AV1 bitstream preserves RGB conversion metadata without ' +
+         'decoderConfig.colorSpace');
+}
