@@ -25,6 +25,7 @@ async_test(t => {
     assert_true(!!frame);
     assert_equals(frame.displayWidth, video.videoWidth);
     assert_equals(frame.displayHeight, video.videoHeight);
+    assertPopulatedColorSpace(frame, 'decoded video frame');
 
     let canvas = new OffscreenCanvas(frame.displayWidth, frame.displayHeight);
     let ctx = canvas.getContext('2d');
@@ -157,4 +158,64 @@ test(t => {
   verifyFourColorsImage(canvas.width, canvas.height, ctx);
   frame_copy.close();
 }, 'Copy of canvas element constructed VideoFrame');
+
+function assertPopulatedColorSpace(frame, description) {
+  for (const property of ['primaries', 'transfer', 'matrix', 'fullRange']) {
+    assert_not_equals(frame.colorSpace[property], null,
+                      description + ' ' + property);
+  }
+}
+
+function assertSRGBColorSpace(frame, description) {
+  assert_equals(frame.colorSpace.primaries, 'bt709',
+                description + ' primaries');
+  assert_equals(frame.colorSpace.transfer, 'iec61966-2-1',
+                description + ' transfer');
+  assert_equals(frame.colorSpace.matrix, 'rgb', description + ' matrix');
+  assert_true(frame.colorSpace.fullRange, description + ' full range');
+}
+
+promise_test(async t => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 2;
+  const context = canvas.getContext('2d');
+  context.fillStyle = 'red';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const canvasFrame = new VideoFrame(canvas, {timestamp: 0});
+  assertSRGBColorSpace(canvasFrame, 'canvas frame');
+  canvasFrame.close();
+
+  const stream = canvas.captureStream(10);
+  const track = stream.getVideoTracks()[0];
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  document.body.appendChild(video);
+  const repaint = setInterval(
+      () => context.fillRect(0, 0, canvas.width, canvas.height), 50);
+  t.add_cleanup(() => {
+    clearInterval(repaint);
+    video.remove();
+    video.srcObject = null;
+    track.stop();
+  });
+
+  await video.play();
+  while (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+         video.videoWidth === 0) {
+    await new Promise(resolve => t.step_timeout(resolve, 50));
+  }
+
+  const frame = new VideoFrame(video, {timestamp: 0});
+  const copy = new VideoFrame(frame);
+  t.add_cleanup(() => {
+    frame.close();
+    copy.close();
+  });
+  assertSRGBColorSpace(frame, 'video frame');
+  assertSRGBColorSpace(copy, 'copied frame');
+}, 'Canvas-backed HTMLVideoElement VideoFrame has an sRGB color space');
 </script>

@@ -60,3 +60,45 @@ for (const testCase of CASES) {
     assert_equals(colorSpace.fullRange, testCase.fullRange, 'fullRange');
   }, 'VideoDecoder reports ' + testCase.name + ' H.264 VUI color range');
 }
+
+promise_test(async t => {
+  const config = {
+    ...CONFIG,
+    colorSpace: {primaries: 'bt2020'},
+  };
+  const support = await VideoDecoder.isConfigSupported(config);
+  assert_implements_optional(support.supported, config.codec + ' unsupported');
+
+  const response = await fetch('h264-limited-range.annexb');
+  assert_true(response.ok, 'fixture loaded');
+  const frames = [];
+  const decoder = new VideoDecoder({
+    output(frame) {
+      frames.push(frame);
+    },
+    error: t.unreached_func('decoder error'),
+  });
+  t.add_cleanup(() => {
+    if (decoder.state !== 'closed') {
+      decoder.close();
+    }
+    for (const frame of frames) {
+      frame.close();
+    }
+  });
+
+  decoder.configure(config);
+  decoder.decode(new EncodedVideoChunk({
+    type: 'key',
+    timestamp: 0,
+    data: await response.arrayBuffer(),
+  }));
+  await decoder.flush();
+
+  assert_equals(frames.length, 1, 'one decoded frame');
+  const colorSpace = frames[0].colorSpace;
+  assert_equals(colorSpace.primaries, 'bt2020', 'configured primaries');
+  assert_equals(colorSpace.transfer, 'bt709', 'image transfer');
+  assert_equals(colorSpace.matrix, 'bt709', 'image matrix');
+  assert_false(colorSpace.fullRange, 'image range');
+}, 'VideoDecoder resolves partial configured color over image metadata');
