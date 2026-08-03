@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "AOMDecoder.h"
 #include "AnnexB.h"
 #include "BufferReader.h"
 #include "H264.h"
@@ -202,7 +203,8 @@ class MediaDataEncoderTest : public testing::Test {
 already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
     CodecType aCodec, Usage aUsage, EncoderConfig::SampleFormat aFormat,
     gfx::IntSize aSize, ScalabilityMode aScalabilityMode,
-    const EncoderConfig::CodecSpecific& aSpecific) {
+    const EncoderConfig::CodecSpecific& aSpecific,
+    HardwarePreference aHardwarePreference = HardwarePreference::None) {
   RefPtr<PEMFactory> f(new PEMFactory());
 
   if (f->SupportsCodec(aCodec).isEmpty()) {
@@ -212,8 +214,7 @@ already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
   const EncoderConfig config(
       aCodec, aSize, aUsage, aFormat, FRAME_RATE /* FPS */,
       KEYFRAME_INTERVAL /* keyframe interval */, BIT_RATE /* bitrate */, 0, 0,
-      BIT_RATE_MODE, HardwarePreference::None /* hardware preference */,
-      aScalabilityMode, aSpecific);
+      BIT_RATE_MODE, aHardwarePreference, aScalabilityMode, aSpecific);
   if (f->Supports(config).isEmpty()) {
     return nullptr;
   }
@@ -292,6 +293,33 @@ static Result<MediaDataEncoder::EncodedData, MediaResult> Encode(
     MediaDataEncoderTest::FrameSource& aSource) {
   EncodeResult r = MOZ_TRY(EncodeWithInputStats(aEncoder, aNumFrames, aSource));
   return std::move(r.mEncodedData);
+}
+
+static Result<MediaDataEncoder::EncodedData, MediaResult> EncodeColorFrames(
+    const RefPtr<MediaDataEncoder>& aEncoder,
+    const nsTArray<EncodeColor>& aColors,
+    MediaDataEncoderTest::FrameSource& aSource) {
+  MediaDataEncoder::EncodedData output;
+  for (size_t i = 0; i < aColors.Length(); ++i) {
+    RefPtr<MediaData> frame = aSource.GetFrame(i);
+    frame->As<VideoData>()->mEncodeColor = Some(aColors[i]);
+    output.AppendElements(MOZ_TRY(WaitFor(aEncoder->Encode(frame))));
+  }
+  output.AppendElements(std::move(MOZ_TRY(Drain(aEncoder))));
+  return output;
+}
+
+static void ExpectAV1Color(const MediaRawData& aPacket,
+                           const EncodeColor& aExpected) {
+  AOMDecoder::AV1SequenceInfo info;
+  MediaResult result = AOMDecoder::ReadSequenceHeaderInfo(
+      Span(aPacket.Data(), aPacket.Size()), info);
+  ASSERT_EQ(result.Code(), NS_OK);
+  EXPECT_EQ(info.mColorSpace.mPrimaries, aExpected.mPrimaries);
+  EXPECT_EQ(info.mColorSpace.mTransfer, aExpected.mTransfer);
+  EXPECT_EQ(info.mColorSpace.mMatrix, aExpected.mMatrix);
+  EXPECT_EQ(info.mColorSpace.mRange,
+            aExpected.mRange.valueOr(gfx::ColorRange::LIMITED));
 }
 
 static Result<EncodeResult, MediaResult> EncodeBatchWithInputStats(
@@ -428,6 +456,40 @@ static already_AddRefed<MediaDataEncoder> CreateH264Encoder(
         AsVariant(kH264SpecificAnnexB)) {
   return CreateVideoEncoder(CodecType::H264, aUsage, aFormat, aSize,
                             aScalabilityMode, aSpecific);
+}
+
+static already_AddRefed<MediaDataEncoder> CreateAV1Encoder() {
+  return CreateVideoEncoder(
+      CodecType::AV1, Usage::Realtime,
+      EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420P), kImageSize,
+      ScalabilityMode::None, AsVariant(void_t{}),
+      HardwarePreference::RequireSoftware);
+}
+
+TEST_F(MediaDataEncoderTest, AV1SignalsPerFrameColor) {
+  RUN_IF_SUPPORTED(
+      CodecType::AV1, ([this]() {
+        RefPtr<MediaDataEncoder> e = CreateAV1Encoder();
+        ASSERT_TRUE(EnsureInit(e));
+
+        const nsTArray<EncodeColor> colors{
+            {gfx::CICP::CP_BT2020, gfx::CICP::TC_SMPTE2084,
+             gfx::CICP::MC_BT2020_NCL, Some(gfx::ColorRange::FULL)},
+            {gfx::CICP::CP_BT470BG, gfx::CICP::TC_BT601, gfx::CICP::MC_BT470BG,
+             Some(gfx::ColorRange::LIMITED)},
+            {gfx::CICP::CP_UNSPECIFIED, gfx::CICP::TC_UNSPECIFIED,
+             gfx::CICP::MC_UNSPECIFIED, Nothing()},
+        };
+        MediaDataEncoder::EncodedData output =
+            GET_OR_RETURN_ON_ERROR(EncodeColorFrames(e, colors, mData));
+
+        ASSERT_EQ(output.Length(), colors.Length());
+        for (size_t i = 0; i < output.Length(); ++i) {
+          EXPECT_TRUE(output[i]->mKeyframe);
+          ExpectAV1Color(*output[i], colors[i]);
+        }
+        WaitForShutdown(e);
+      }));
 }
 
 TEST_F(MediaDataEncoderTest, H264Create) {
@@ -866,6 +928,14 @@ static already_AddRefed<MediaDataEncoder> CreateVP9Encoder(
                             aScalabilityMode, aSpecific);
 }
 
+static already_AddRefed<MediaDataEncoder> CreateSoftwareVP9Encoder() {
+  return CreateVideoEncoder(
+      CodecType::VP9, Usage::Realtime,
+      EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420P), kImageSize,
+      ScalabilityMode::None, AsVariant(VP9Specific()),
+      HardwarePreference::RequireSoftware);
+}
+
 TEST_F(MediaDataEncoderTest, VP8Create) {
   RUN_IF_SUPPORTED(CodecType::VP8, []() {
     RefPtr<MediaDataEncoder> e = CreateVP8Encoder();
@@ -1099,6 +1169,37 @@ TEST_F(MediaDataEncoderTest, VP9Encodes) {
     }
     WaitForShutdown(e);
   });
+}
+
+TEST_F(MediaDataEncoderTest, VP9SignalsPerFrameColor) {
+  RUN_IF_SUPPORTED(
+      CodecType::VP9, ([this]() {
+        RefPtr<MediaDataEncoder> e = CreateSoftwareVP9Encoder();
+        ASSERT_TRUE(EnsureInit(e));
+
+        const nsTArray<EncodeColor> colors{
+            {gfx::CICP::CP_BT2020, gfx::CICP::TC_SMPTE2084,
+             gfx::CICP::MC_BT2020_NCL, Some(gfx::ColorRange::FULL)},
+            {gfx::CICP::CP_BT470BG, gfx::CICP::TC_BT601, gfx::CICP::MC_BT470BG,
+             Some(gfx::ColorRange::LIMITED)},
+            {gfx::CICP::CP_UNSPECIFIED, gfx::CICP::TC_UNSPECIFIED,
+             gfx::CICP::MC_UNSPECIFIED, Nothing()},
+        };
+        MediaDataEncoder::EncodedData output =
+            GET_OR_RETURN_ON_ERROR(EncodeColorFrames(e, colors, mData));
+
+        ASSERT_EQ(output.Length(), colors.Length());
+        const int expectedColorSpaces[] = {5, 1, 0};
+        for (size_t i = 0; i < output.Length(); ++i) {
+          EXPECT_TRUE(output[i]->mKeyframe);
+          VPXDecoder::VPXStreamInfo info;
+          ASSERT_TRUE(VPXDecoder::GetStreamInfo(*output[i], info,
+                                                VPXDecoder::Codec::VP9));
+          EXPECT_EQ(info.mColorSpace, expectedColorSpaces[i]);
+          EXPECT_EQ(info.mFullRange, i == 0);
+        }
+        WaitForShutdown(e);
+      }));
 }
 
 TEST_F(MediaDataEncoderTest, VP9Duration) {
