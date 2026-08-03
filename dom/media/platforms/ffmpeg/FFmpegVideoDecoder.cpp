@@ -1104,6 +1104,42 @@ static gfx::YUVColorSpace TransferAVColorSpaceToColorSpace(
   }
 }
 
+static Maybe<gfx::ColorSpace2> TransferAVColorPrimaries(
+    const AVColorPrimaries aPrimaries) {
+  switch (static_cast<gfx::CICP::ColourPrimaries>(aPrimaries)) {
+    case gfx::CICP::CP_BT709:
+      return Some(gfx::ColorSpace2::BT709);
+    case gfx::CICP::CP_BT601:
+      return Some(gfx::ColorSpace2::BT601_525);
+    case gfx::CICP::CP_BT2020:
+      return Some(gfx::ColorSpace2::BT2020);
+    case gfx::CICP::CP_SMPTE432:
+      return Some(gfx::ColorSpace2::DISPLAY_P3);
+    default:
+      return Nothing();
+  }
+}
+
+static Maybe<gfx::TransferFunction> TransferAVTransferFunction(
+    const AVColorTransferCharacteristic aTransfer) {
+  switch (static_cast<gfx::CICP::TransferCharacteristics>(aTransfer)) {
+    case gfx::CICP::TC_BT709:
+    case gfx::CICP::TC_BT2020_10BIT:
+    case gfx::CICP::TC_BT2020_12BIT:
+      return Some(gfx::TransferFunction::BT709);
+    case gfx::CICP::TC_SRGB:
+      return Some(gfx::TransferFunction::SRGB);
+    case gfx::CICP::TC_SMPTE2084:
+      return Some(gfx::TransferFunction::PQ);
+    case gfx::CICP::TC_HLG:
+      return Some(gfx::TransferFunction::HLG);
+    case gfx::CICP::TC_LINEAR:
+      return Some(gfx::TransferFunction::LINEAR);
+    default:
+      return Nothing();
+  }
+}
+
 #ifdef CUSTOMIZED_BUFFER_ALLOCATION
 static int GetVideoBufferWrapper(struct AVCodecContext* aCodecContext,
                                  AVFrame* aFrame, int aFlags) {
@@ -1228,8 +1264,16 @@ FFmpegVideoDecoder<LIBAV_VER>::AllocateTextureClientForImage(
   }
   data.mColorDepth = GetColorDepth(aCodecContext->pix_fmt);
   data.mColorRange = GetColorRange(aCodecContext->color_range);
-  if (mInfo.mTransferFunction) {
-    data.mTransferFunction = *mInfo.mTransferFunction;
+  data.mColorPrimaries =
+      TransferAVColorPrimaries(aCodecContext->color_primaries)
+          .valueOr(mInfo.mColorPrimaries.valueOr(gfx::ColorSpace2::UNKNOWN));
+  Maybe<gfx::TransferFunction> transfer =
+      TransferAVTransferFunction(aCodecContext->color_trc);
+  if (!transfer) {
+    transfer = mInfo.mTransferFunction;
+  }
+  if (transfer) {
+    data.mTransferFunction = *transfer;
   }
   data.mHDRMetadata = mInfo.mHDRMetadata;
 
@@ -1917,16 +1961,18 @@ gfx::ColorSpace2 FFmpegVideoDecoder<LIBAV_VER>::GetFrameColorPrimaries() const {
 #if LIBAVCODEC_VERSION_MAJOR > 57
   colorPrimaries = mFrame->color_primaries;
 #endif
-  switch (colorPrimaries) {
-#if LIBAVCODEC_VERSION_MAJOR >= 55
-    case AVCOL_PRI_BT2020:
-      return gfx::ColorSpace2::BT2020;
+  return TransferAVColorPrimaries(colorPrimaries)
+      .valueOr(mInfo.mColorPrimaries.valueOr(gfx::ColorSpace2::UNKNOWN));
+}
+
+Maybe<gfx::TransferFunction>
+FFmpegVideoDecoder<LIBAV_VER>::GetFrameTransferFunction() const {
+  AVColorTransferCharacteristic transfer = AVCOL_TRC_UNSPECIFIED;
+#if LIBAVCODEC_VERSION_MAJOR > 57
+  transfer = mFrame->color_trc;
 #endif
-    case AVCOL_PRI_BT709:
-      return gfx::ColorSpace2::BT709;
-    default:
-      return gfx::ColorSpace2::BT709;
-  }
+  Maybe<gfx::TransferFunction> result = TransferAVTransferFunction(transfer);
+  return result ? result : mInfo.mTransferFunction;
 }
 
 gfx::ColorRange FFmpegVideoDecoder<LIBAV_VER>::GetFrameColorRange() const {
@@ -2001,6 +2047,7 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::CreateImage(
   SetChromaPlaneGeometryFromAVFormat(b, static_cast<int>(mFrame->format),
                                      mFrame->width, mFrame->height);
   b.mYUVColorSpace = GetFrameColorSpace();
+  b.mColorPrimaries = GetFrameColorPrimaries();
   b.mColorRange = GetFrameColorRange();
 
   RefPtr<VideoData> v;
@@ -2085,12 +2132,14 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::CreateImage(
         return ret;
       }
     }
+    VideoInfo info = mInfo;
+    info.mTransferFunction = GetFrameTransferFunction();
     Result<already_AddRefed<VideoData>, MediaResult> r =
         VideoData::CreateAndCopyData(
-            mInfo, mImageContainer, aOffset, TimeUnit::FromMicroseconds(aPts),
+            info, mImageContainer, aOffset, TimeUnit::FromMicroseconds(aPts),
             TimeUnit::FromMicroseconds(aDuration), b, IsKeyFrame(mFrame),
             TimeUnit::FromMicroseconds(mFrame->pkt_dts),
-            mInfo.ScaledImageRect(mFrame->width, mFrame->height),
+            info.ScaledImageRect(mFrame->width, mFrame->height),
             mImageAllocator);
     if (r.isErr()) {
       return r.unwrapErr();
