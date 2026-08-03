@@ -485,14 +485,15 @@ RefPtr<mozilla::VideoData> VideoEncoderTraits::CreateInputInternal(
     return nullptr;
   }
 
-  auto format = aInput.GetFormat();
-  if (!format.IsNull() && VideoFrame::Format(format.Value()).IsYUV()) {
-    data->mEncodeColor.emplace(ToEncodeColor(aInput.NativeColorSpace()));
-  } else {
-    data->mEncodeColor.emplace(
-        EncodeColor{gfx::CICP::CP_BT709, gfx::CICP::TC_BT709,
-                    gfx::CICP::MC_BT709, Some(gfx::ColorRange::LIMITED)});
+  const auto format = aInput.GetFormat();
+  EncodeColor encodeColor = ToEncodeColor(aInput.NativeColorSpace());
+  if (format.IsNull() || !VideoFrame::Format(format.Value()).IsYUV()) {
+    // libyuv converts RGB to limited-range YUV with BT.601 coefficients. It
+    // does not transform the RGB primaries or transfer characteristics.
+    encodeColor.mMatrix = gfx::CICP::MC_BT601;
+    encodeColor.mRange = Some(gfx::ColorRange::LIMITED);
   }
+  data->mEncodeColor.emplace(encodeColor);
   return data;
 }
 
