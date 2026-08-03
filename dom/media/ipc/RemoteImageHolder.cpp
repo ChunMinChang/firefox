@@ -27,7 +27,8 @@ RemoteImageHolder::RemoteImageHolder(
     layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,
     const gfx::ColorDepth& aColorDepth, const layers::SurfaceDescriptor& aSD,
     gfx::YUVColorSpace aYUVColorSpace, gfx::ColorSpace2 aColorPrimaries,
-    gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange)
+    gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange,
+    Maybe<gfx::ChromaSubsampling> aChromaSubsampling)
     : mSource(aSource),
       mSize(aSize),
       mColorDepth(aColorDepth),
@@ -36,7 +37,8 @@ RemoteImageHolder::RemoteImageHolder(
       mYUVColorSpace(aYUVColorSpace),
       mColorPrimaries(aColorPrimaries),
       mTransferFunction(aTransferFunction),
-      mColorRange(aColorRange) {}
+      mColorRange(aColorRange),
+      mChromaSubsampling(aChromaSubsampling) {}
 
 RemoteImageHolder::RemoteImageHolder(RemoteImageHolder&& aOther)
     : mSource(aOther.mSource),
@@ -47,18 +49,21 @@ RemoteImageHolder::RemoteImageHolder(RemoteImageHolder&& aOther)
       mYUVColorSpace(aOther.mYUVColorSpace),
       mColorPrimaries(aOther.mColorPrimaries),
       mTransferFunction(aOther.mTransferFunction),
-      mColorRange(aOther.mColorRange) {
+      mColorRange(aOther.mColorRange),
+      mChromaSubsampling(aOther.mChromaSubsampling) {
   aOther.mSD = Nothing();
 }
 
-already_AddRefed<Image> RemoteImageHolder::DeserializeImage(
-    layers::BufferRecycleBin* aBufferRecycleBin) {
-  MOZ_ASSERT(mSD && mSD->type() == SurfaceDescriptor::TSurfaceDescriptorBuffer);
+/* static */ already_AddRefed<Image> RemoteImageHolder::DeserializeImage(
+    const layers::SurfaceDescriptor& aSD,
+    layers::BufferRecycleBin* aBufferRecycleBin,
+    gfx::ColorSpace2 aColorPrimaries) {
+  MOZ_ASSERT(aSD.type() == SurfaceDescriptor::TSurfaceDescriptorBuffer);
   if (!aBufferRecycleBin) {
     return nullptr;
   }
 
-  const SurfaceDescriptorBuffer& sdBuffer = mSD->get_SurfaceDescriptorBuffer();
+  const SurfaceDescriptorBuffer& sdBuffer = aSD.get_SurfaceDescriptorBuffer();
   const MemoryOrShmem& memOrShmem = sdBuffer.data();
   if (memOrShmem.type() != MemoryOrShmem::TShmem) {
     MOZ_ASSERT_UNREACHABLE("Unexpected MemoryOrShmem type");
@@ -118,7 +123,7 @@ already_AddRefed<Image> RemoteImageHolder::DeserializeImage(
     pData.mStereoMode = descriptor.stereoMode();
     pData.mColorDepth = descriptor.colorDepth();
     pData.mYUVColorSpace = descriptor.yUVColorSpace();
-    pData.mColorPrimaries = mColorPrimaries;
+    pData.mColorPrimaries = aColorPrimaries;
     pData.mTransferFunction = descriptor.transferFunction();
     pData.mHDRMetadata = descriptor.hdrMetadata();
     pData.mColorRange = descriptor.colorRange();
@@ -187,11 +192,11 @@ already_AddRefed<layers::Image> RemoteImageHolder::TransferToImage(
   }
   RefPtr<Image> image;
   if (mSD->type() == SurfaceDescriptor::TSurfaceDescriptorBuffer) {
-    image = DeserializeImage(aBufferRecycleBin);
+    image = DeserializeImage(*mSD, aBufferRecycleBin, mColorPrimaries);
   } else if (mManager) {
     image = mManager->TransferToImage(*mSD, mSize, mColorDepth, mYUVColorSpace,
                                       mColorPrimaries, mTransferFunction,
-                                      mColorRange);
+                                      mColorRange, mChromaSubsampling);
   }
   mSD = Nothing();
   mManager = nullptr;
@@ -224,6 +229,7 @@ RemoteImageHolder::~RemoteImageHolder() {
   WriteParam(aWriter, aParam.mColorPrimaries);
   WriteParam(aWriter, aParam.mTransferFunction);
   WriteParam(aWriter, aParam.mColorRange);
+  WriteParam(aWriter, aParam.mChromaSubsampling);
   // Empty this holder.
   aParam.mSD = mozilla::Nothing();
   aParam.mManager = nullptr;
@@ -238,7 +244,8 @@ RemoteImageHolder::~RemoteImageHolder() {
       !ReadParam(aReader, &aResult->mYUVColorSpace) ||
       !ReadParam(aReader, &aResult->mColorPrimaries) ||
       !ReadParam(aReader, &aResult->mTransferFunction) ||
-      !ReadParam(aReader, &aResult->mColorRange)) {
+      !ReadParam(aReader, &aResult->mColorRange) ||
+      !ReadParam(aReader, &aResult->mChromaSubsampling)) {
     return false;
   }
 

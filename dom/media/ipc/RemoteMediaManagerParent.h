@@ -40,11 +40,17 @@ class RemoteMediaManagerParent final : public PRemoteMediaManagerParent,
     MOZ_ASSERT_UNREACHABLE("Not usable from the parent");
     return nullptr;
   }
+  already_AddRefed<layers::Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD) override {
+    MOZ_ASSERT_UNREACHABLE("Not usable from the parent");
+    return nullptr;
+  }
   already_AddRefed<layers::Image> TransferToImage(
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
       gfx::ColorSpace2 aColorPrimaries, gfx::TransferFunction aTransferFunction,
-      gfx::ColorRange aColorRange) override;
+      gfx::ColorRange aColorRange,
+      Maybe<gfx::ChromaSubsampling> aChromaSubsampling) override;
   void DeallocateSurfaceDescriptor(
       const SurfaceDescriptorGPUVideo& aSD) override;
 
@@ -84,6 +90,7 @@ class RemoteMediaManagerParent final : public PRemoteMediaManagerParent,
       const nsAString& aKeySystem);
 
   mozilla::ipc::IPCResult RecvReadback(const SurfaceDescriptorGPUVideo& aSD,
+                                       bool aUseYCbCr,
                                        SurfaceDescriptor* aResult);
   mozilla::ipc::IPCResult RecvDeallocateSurfaceDescriptorGPUVideo(
       const SurfaceDescriptorGPUVideo& aSD);

@@ -29,7 +29,8 @@ class RemoteImageHolder final {
       layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, const layers::SurfaceDescriptor& aSD,
       gfx::YUVColorSpace aYUVColorSpace, gfx::ColorSpace2 aColorPrimaries,
-      gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange);
+      gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange,
+      Maybe<gfx::ChromaSubsampling> aChromaSubsampling);
   RemoteImageHolder(RemoteImageHolder&& aOther);
   // Ensure we never copy this object.
   RemoteImageHolder(const RemoteImageHolder& aOther) = delete;
@@ -41,10 +42,12 @@ class RemoteImageHolder final {
   // transfered to that Image.
   already_AddRefed<layers::Image> TransferToImage(
       layers::BufferRecycleBin* aBufferRecycleBin = nullptr);
+  static already_AddRefed<layers::Image> DeserializeImage(
+      const layers::SurfaceDescriptor& aSD,
+      layers::BufferRecycleBin* aBufferRecycleBin,
+      gfx::ColorSpace2 aColorPrimaries = gfx::ColorSpace2::UNKNOWN);
 
  private:
-  already_AddRefed<layers::Image> DeserializeImage(
-      layers::BufferRecycleBin* aBufferRecycleBin);
   // We need a default for the default constructor, never used in practice.
   layers::VideoBridgeSource mSource = layers::VideoBridgeSource::GpuProcess;
   gfx::IntSize mSize;
@@ -55,6 +58,7 @@ class RemoteImageHolder final {
   gfx::ColorSpace2 mColorPrimaries = {};
   gfx::TransferFunction mTransferFunction = {};
   gfx::ColorRange mColorRange = {};
+  Maybe<gfx::ChromaSubsampling> mChromaSubsampling;
 };
 
 }  // namespace mozilla

@@ -14,6 +14,7 @@ class SourceSurface;
 
 namespace layers {
 class IGPUVideoSurfaceManager;
+class Image;
 
 class GPUVideoTextureData : public TextureData {
  public:
@@ -35,6 +36,7 @@ class GPUVideoTextureData : public TextureData {
   void Forget(LayersIPCChannel* aAllocator) override;
 
   already_AddRefed<gfx::SourceSurface> GetAsSourceSurface();
+  already_AddRefed<Image> ReadbackYCbCr();
 
   void OnSetCurrent();
 

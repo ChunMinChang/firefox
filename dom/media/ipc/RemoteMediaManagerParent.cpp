@@ -296,7 +296,8 @@ void RemoteMediaManagerParent::Open(
 }
 
 mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadback(
-    const SurfaceDescriptorGPUVideo& aSD, SurfaceDescriptor* aResult) {
+    const SurfaceDescriptorGPUVideo& aSD, bool aUseYCbCr,
+    SurfaceDescriptor* aResult) {
   const SurfaceDescriptorRemoteDecoder& sd = aSD;
   RefPtr<Image> image = mImageMap[sd.handle()];
   if (!image) {
@@ -307,7 +308,9 @@ mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadback(
   // Read directly into the shmem to avoid extra copies, if possible.
   SurfaceDescriptorBuffer sdb;
   nsresult rv = image->BuildSurfaceDescriptorBuffer(
-      sdb, Image::BuildSdbFlags::RgbOnly, [&](uint32_t aBufferSize) {
+      sdb,
+      aUseYCbCr ? Image::BuildSdbFlags::Default : Image::BuildSdbFlags::RgbOnly,
+      [&](uint32_t aBufferSize) {
         Shmem buffer;
         if (!AllocShmem(aBufferSize, &buffer)) {
           return MemoryOrShmem();
@@ -354,7 +357,7 @@ already_AddRefed<Image> RemoteMediaManagerParent::TransferToImage(
     const SurfaceDescriptorGPUVideo& aSD, const IntSize& aSize,
     const ColorDepth& aColorDepth, YUVColorSpace aYUVColorSpace,
     ColorSpace2 aColorPrimaries, TransferFunction aTransferFunction,
-    ColorRange aColorRange) {
+    ColorRange aColorRange, Maybe<ChromaSubsampling> aChromaSubsampling) {
   MOZ_ASSERT(OnManagerThread());
   const SurfaceDescriptorRemoteDecoder& sd = aSD;
   const auto i = mImageMap.find(sd.handle());

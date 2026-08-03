@@ -260,6 +260,7 @@ class VideoFrame final : public nsISupports,
     const RefPtr<layers::Image> mImage;
     // Nothing() if mImage is not in VideoPixelFormat
     const Maybe<Format> mFormat;
+    mutable RefPtr<layers::Image> mReadbackImage;
   };
 
   nsCOMPtr<nsIGlobalObject> mParent;

@@ -92,11 +92,14 @@ class RemoteMediaManagerChild final
   // internally and will be ignored if the IPDL actor has been destroyed.
   already_AddRefed<gfx::SourceSurface> Readback(
       const SurfaceDescriptorGPUVideo& aSD) override;
+  already_AddRefed<layers::Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD) override;
   already_AddRefed<layers::Image> TransferToImage(
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
       gfx::ColorSpace2 aColorPrimaries, gfx::TransferFunction aTransferFunction,
-      gfx::ColorRange aColorRange) override;
+      gfx::ColorRange aColorRange,
+      Maybe<gfx::ChromaSubsampling> aChromaSubsampling) override;
   void DeallocateSurfaceDescriptor(
       const SurfaceDescriptorGPUVideo& aSD) override;
 
@@ -146,6 +149,8 @@ class RemoteMediaManagerChild final
 
  private:
   explicit RemoteMediaManagerChild(RemoteMediaIn aLocation);
+  Maybe<layers::SurfaceDescriptor> ReadbackDescriptor(
+      const SurfaceDescriptorGPUVideo& aSD, bool aUseYCbCr);
   ~RemoteMediaManagerChild() = default;
   static RefPtr<PlatformDecoderModule::CreateDecoderPromise> Construct(
       RefPtr<RemoteDecoderChild>&& aChild,

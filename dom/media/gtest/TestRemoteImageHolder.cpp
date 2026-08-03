@@ -27,19 +27,24 @@ class TestGPUVideoSurfaceManager final : public IGPUVideoSurfaceManager {
     return nullptr;
   }
 
-  already_AddRefed<Image> TransferToImage(const SurfaceDescriptorGPUVideo&,
-                                          const IntSize&,
-                                          const ColorDepth& aColorDepth,
-                                          YUVColorSpace aYUVColorSpace,
-                                          ColorSpace2 aColorPrimaries,
-                                          TransferFunction aTransferFunction,
-                                          ColorRange aColorRange) override {
+  already_AddRefed<Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo&) override {
+    return nullptr;
+  }
+
+  already_AddRefed<Image> TransferToImage(
+      const SurfaceDescriptorGPUVideo&, const IntSize&,
+      const ColorDepth& aColorDepth, YUVColorSpace aYUVColorSpace,
+      ColorSpace2 aColorPrimaries, TransferFunction aTransferFunction,
+      ColorRange aColorRange,
+      Maybe<ChromaSubsampling> aChromaSubsampling) override {
     mTransferred = true;
     mColorDepth = aColorDepth;
     mYUVColorSpace = aYUVColorSpace;
     mColorPrimaries = aColorPrimaries;
     mTransferFunction = aTransferFunction;
     mColorRange = aColorRange;
+    mChromaSubsampling = aChromaSubsampling;
     return nullptr;
   }
 
@@ -52,6 +57,7 @@ class TestGPUVideoSurfaceManager final : public IGPUVideoSurfaceManager {
   ColorSpace2 mColorPrimaries = ColorSpace2::UNKNOWN;
   TransferFunction mTransferFunction = TransferFunction::BT709;
   ColorRange mColorRange = ColorRange::LIMITED;
+  Maybe<ChromaSubsampling> mChromaSubsampling;
 
  private:
   ~TestGPUVideoSurfaceManager() = default;
@@ -216,7 +222,7 @@ TEST(TestRemoteImageHolder, PreservesShmemColorMetadata)
   RemoteImageHolder holder(nullptr, VideoBridgeSource::RddProcess,
                            IntSize(4, 4), ColorDepth::COLOR_8, sd,
                            YUVColorSpace::BT2020, ColorSpace2::BT2020,
-                           TransferFunction::PQ, ColorRange::FULL);
+                           TransferFunction::PQ, ColorRange::FULL, Nothing());
   RefPtr<BufferRecycleBin> recycleBin = new BufferRecycleBin();
   RefPtr<layers::Image> image = holder.TransferToImage(recycleBin);
 
@@ -241,7 +247,8 @@ TEST(TestRemoteImageHolder, ForwardsTextureColorMetadata)
   RemoteImageHolder holder(manager, VideoBridgeSource::RddProcess,
                            IntSize(4, 4), ColorDepth::COLOR_10, sd,
                            YUVColorSpace::BT2020, ColorSpace2::BT2020,
-                           TransferFunction::PQ, ColorRange::FULL);
+                           TransferFunction::PQ, ColorRange::FULL,
+                           Some(ChromaSubsampling::HALF_WIDTH_AND_HEIGHT));
   RefPtr<layers::Image> image = holder.TransferToImage();
 
   EXPECT_FALSE(image);
@@ -251,6 +258,8 @@ TEST(TestRemoteImageHolder, ForwardsTextureColorMetadata)
   EXPECT_EQ(manager->mColorPrimaries, ColorSpace2::BT2020);
   EXPECT_EQ(manager->mTransferFunction, TransferFunction::PQ);
   EXPECT_EQ(manager->mColorRange, ColorRange::FULL);
+  EXPECT_EQ(manager->mChromaSubsampling,
+            Some(ChromaSubsampling::HALF_WIDTH_AND_HEIGHT));
 }
 
 TEST(TestRemoteImageHolder, RejectsOversizedDisplayRect)

@@ -260,6 +260,7 @@ MediaResult RemoteVideoDecoderParent::ProcessDecodedData(
     ColorSpace2 colorPrimaries = gfx::ColorSpace2::UNKNOWN;
     TransferFunction transferFunction = gfx::TransferFunction::BT709;
     ColorRange colorRange = gfx::ColorRange::LIMITED;
+    Maybe<ChromaSubsampling> chromaSubsampling;
 
     PlanarYCbCrImage* image = video->mImage->AsPlanarYCbCrImage();
     if (const PlanarYCbCrData* imageData = image ? image->GetData() : nullptr) {
@@ -267,6 +268,11 @@ MediaResult RemoteVideoDecoderParent::ProcessDecodedData(
       colorPrimaries = imageData->mColorPrimaries;
       transferFunction = imageData->mTransferFunction;
       colorRange = imageData->mColorRange;
+      if (!imageData->mAlpha && imageData->mYSkip == 0 &&
+          imageData->mCbSkip == 0 && imageData->mCrSkip == 0 &&
+          imageData->mColorDepth != ColorDepth::COLOR_16) {
+        chromaSubsampling = Some(imageData->mChromaSubsampling);
+      }
     }
 
     if (mKnowsCompositor) {
@@ -339,7 +345,7 @@ MediaResult RemoteVideoDecoderParent::ProcessDecodedData(
                        ? VideoBridgeSource::RddProcess
                        : VideoBridgeSource::MFMediaEngineCDMProcess),
             size, video->mImage->GetColorDepth(), sd, yuvColorSpace,
-            colorPrimaries, transferFunction, colorRange),
+            colorPrimaries, transferFunction, colorRange, chromaSubsampling),
         video->mFrameID);
 
     array.AppendElement(std::move(output));

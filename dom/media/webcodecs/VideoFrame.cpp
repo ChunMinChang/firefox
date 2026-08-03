@@ -9,6 +9,7 @@
 #include <limits>
 #include <utility>
 
+#include "GPUVideoImage.h"
 #include "ImageContainer.h"
 #include "ImageConversion.h"
 #include "MediaResult.h"
@@ -2743,7 +2744,9 @@ VideoFrame::Resource::Resource(const RefPtr<layers::Image>& aImage,
 }
 
 VideoFrame::Resource::Resource(const Resource& aOther)
-    : mImage(aOther.mImage), mFormat(aOther.mFormat) {
+    : mImage(aOther.mImage),
+      mFormat(aOther.mFormat),
+      mReadbackImage(aOther.mReadbackImage) {
   MOZ_ASSERT(mImage);
 }
 
@@ -2903,6 +2906,19 @@ bool VideoFrame::Resource::CopyPlaneInto(const Format::Plane& aPlane,
                                          size_t aDestinationStride) const {
   if (!mFormat) {
     return false;
+  }
+
+  if (layers::GPUVideoImage* image = mImage->AsGPUVideoImage();
+      image && mFormat->IsYUV()) {
+    if (!mReadbackImage) {
+      mReadbackImage = image->ReadbackYCbCr();
+    }
+    if (!mReadbackImage) {
+      return false;
+    }
+    Resource readback(mReadbackImage, Some(*mFormat));
+    return readback.CopyPlaneInto(aPlane, aRect, aPlaneDest,
+                                  aDestinationStride);
   }
 
   if (mImage->GetFormat() == ImageFormat::PLANAR_YCBCR) {

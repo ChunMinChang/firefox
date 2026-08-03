@@ -19,6 +19,7 @@
 #include "mozilla/DataMutex.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/RemoteDecodeUtils.h"
+#include "mozilla/RemoteImageHolder.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/SyncRunnable.h"
@@ -1071,32 +1072,46 @@ void DeleteSurfaceDescriptorUserData(void* aClosure) {
   delete sd;
 }
 
-already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
-    const SurfaceDescriptorGPUVideo& aSD) {
-  // We can't use NS_DispatchAndSpinEventLoopUntilComplete here since that will
-  // spin the event loop while it waits. This function can be called from JS and
-  // we don't want that to happen.
+Maybe<SurfaceDescriptor> RemoteMediaManagerChild::ReadbackDescriptor(
+    const SurfaceDescriptorGPUVideo& aSD, bool aUseYCbCr) {
+  // We cannot spin the event loop while synchronously waiting for readback.
   nsCOMPtr<nsISerialEventTarget> managerThread = GetManagerThread();
   if (!managerThread) {
-    return nullptr;
+    return Nothing();
   }
 
   SurfaceDescriptor sd;
-  RefPtr<Runnable> task =
-      NS_NewRunnableFunction("RemoteMediaManagerChild::Readback", [&]() {
+  RefPtr<Runnable> task = NS_NewRunnableFunction(
+      "RemoteMediaManagerChild::ReadbackDescriptor", [&]() {
         if (CanSend()) {
-          SendReadback(aSD, &sd);
+          SendReadback(aSD, aUseYCbCr, &sd);
         }
       });
   SyncRunnable::DispatchToThread(managerThread, task);
 
   if (sd.type() != SurfaceDescriptor::TSurfaceDescriptorBuffer) {
     LOGE("Unexpected SurfaceDescriptor type in Readback");
-    return nullptr;
+    return Nothing();
   }
-  auto& sdb = sd.get_SurfaceDescriptorBuffer();
+  const auto& sdb = sd.get_SurfaceDescriptorBuffer();
   if (sdb.data().type() != MemoryOrShmem::TShmem) {
     LOGE("Unexpected SurfaceDescriptorBuffer data type in Readback");
+    return Nothing();
+  }
+  return Some(std::move(sd));
+}
+
+already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
+    const SurfaceDescriptorGPUVideo& aSD) {
+  Maybe<SurfaceDescriptor> descriptor = ReadbackDescriptor(aSD, false);
+  if (!descriptor) {
+    return nullptr;
+  }
+  SurfaceDescriptor sd = std::move(*descriptor);
+  if (sd.get_SurfaceDescriptorBuffer().desc().type() !=
+      BufferDescriptor::TRGBDescriptor) {
+    DestroySurfaceDescriptor(this, &sd);
+    LOGE("Unexpected non-RGB descriptor in RGB readback");
     return nullptr;
   }
 
@@ -1115,20 +1130,41 @@ already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
   return source.forget();
 }
 
+already_AddRefed<Image> RemoteMediaManagerChild::ReadbackYCbCr(
+    const SurfaceDescriptorGPUVideo& aSD) {
+  Maybe<SurfaceDescriptor> descriptor = ReadbackDescriptor(aSD, true);
+  if (!descriptor) {
+    return nullptr;
+  }
+  SurfaceDescriptor sd = std::move(*descriptor);
+  if (sd.get_SurfaceDescriptorBuffer().desc().type() !=
+      BufferDescriptor::TYCbCrDescriptor) {
+    DestroySurfaceDescriptor(this, &sd);
+    LOGE("Unexpected non-YCbCr descriptor in YCbCr readback");
+    return nullptr;
+  }
+
+  RefPtr<BufferRecycleBin> recycleBin = new BufferRecycleBin();
+  RefPtr<Image> image =
+      RemoteImageHolder::DeserializeImage(sd, recycleBin.get());
+  DestroySurfaceDescriptor(this, &sd);
+  return image.forget();
+}
+
 already_AddRefed<Image> RemoteMediaManagerChild::TransferToImage(
     const SurfaceDescriptorGPUVideo& aSD, const IntSize& aSize,
     const ColorDepth& aColorDepth, YUVColorSpace aYUVColorSpace,
     ColorSpace2 aColorPrimaries, TransferFunction aTransferFunction,
-    ColorRange aColorRange) {
+    ColorRange aColorRange, Maybe<ChromaSubsampling> aChromaSubsampling) {
   // The Image here creates a TextureData object that takes ownership
   // of the SurfaceDescriptor, and is responsible for making sure that
   // it gets deallocated.
   SurfaceDescriptorGPUVideo sd(aSD);
   sd.get_SurfaceDescriptorRemoteDecoder().source() =
       Some(GetVideoBridgeSourceFromRemoteMediaIn(mLocation));
-  return MakeAndAddRef<GPUVideoImage>(this, sd, aSize, aColorDepth,
-                                      aYUVColorSpace, aColorPrimaries,
-                                      aTransferFunction, aColorRange);
+  return MakeAndAddRef<GPUVideoImage>(
+      this, sd, aSize, aColorDepth, aYUVColorSpace, aColorPrimaries,
+      aTransferFunction, aColorRange, aChromaSubsampling);
 }
 
 void RemoteMediaManagerChild::DeallocateSurfaceDescriptor(

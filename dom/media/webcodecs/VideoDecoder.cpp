@@ -281,6 +281,45 @@ static Result<Ok, nsresult> CloneConfiguration(
   return Ok();
 }
 
+static Maybe<VideoPixelFormat> PlanarPixelFormat(
+    gfx::ChromaSubsampling aSubsampling, gfx::ColorDepth aDepth) {
+  switch (aDepth) {
+    case gfx::ColorDepth::COLOR_8:
+      switch (aSubsampling) {
+        case gfx::ChromaSubsampling::FULL:
+          return Some(VideoPixelFormat::I444);
+        case gfx::ChromaSubsampling::HALF_WIDTH:
+          return Some(VideoPixelFormat::I422);
+        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
+          return Some(VideoPixelFormat::I420);
+      }
+      break;
+    case gfx::ColorDepth::COLOR_10:
+      switch (aSubsampling) {
+        case gfx::ChromaSubsampling::FULL:
+          return Some(VideoPixelFormat::I444P10);
+        case gfx::ChromaSubsampling::HALF_WIDTH:
+          return Some(VideoPixelFormat::I422P10);
+        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
+          return Some(VideoPixelFormat::I420P10);
+      }
+      break;
+    case gfx::ColorDepth::COLOR_12:
+      switch (aSubsampling) {
+        case gfx::ChromaSubsampling::FULL:
+          return Some(VideoPixelFormat::I444P12);
+        case gfx::ChromaSubsampling::HALF_WIDTH:
+          return Some(VideoPixelFormat::I422P12);
+        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
+          return Some(VideoPixelFormat::I420P12);
+      }
+      break;
+    case gfx::ColorDepth::COLOR_16:
+      break;
+  }
+  return Nothing();
+}
+
 static Maybe<VideoPixelFormat> GuessPixelFormat(layers::Image* aImage) {
   if (aImage) {
     // TODO: Implement ImageUtils::Impl for MacIOSurfaceImage and
@@ -302,6 +341,13 @@ static Maybe<VideoPixelFormat> GuessPixelFormat(layers::Image* aImage) {
       return f;
     }
     if (layers::GPUVideoImage* image = aImage->AsGPUVideoImage()) {
+      if (Maybe<gfx::ChromaSubsampling> subsampling =
+              image->GetChromaSubsampling()) {
+        if (Maybe<VideoPixelFormat> format =
+                PlanarPixelFormat(*subsampling, image->GetColorDepth())) {
+          return format;
+        }
+      }
       RefPtr<layers::ImageBridgeChild> imageBridge =
           layers::ImageBridgeChild::GetSingleton();
       layers::TextureClient* texture = image->GetTextureClient(imageBridge);
