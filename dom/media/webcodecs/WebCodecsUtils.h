@@ -25,6 +25,10 @@
 
 namespace mozilla {
 
+namespace layers {
+class Image;
+}
+
 namespace dom {
 class VideoEncoderConfigInternal;
 class VideoDecoderConfigInternal;
@@ -385,6 +389,10 @@ nsCString ColorSpaceInitToString(
     const dom::VideoColorSpaceInit& aColorSpaceInit);
 
 RefPtr<TaskQueue> GetWebCodecsEncoderTaskQueue();
+Maybe<VideoPixelFormat> VideoPixelFormatFromImage(layers::Image* aImage);
+VideoColorSpaceInternal ResolveVideoColorSpace(
+    layers::Image* aImage, const Maybe<VideoPixelFormat>& aFormat,
+    const Maybe<VideoColorSpaceInternal>& aOverride = Nothing());
 VideoColorSpaceInternal FallbackColorSpaceForVideoContent();
 VideoColorSpaceInternal FallbackColorSpaceForWebContent();
 

@@ -6,7 +6,6 @@
 
 #include "DecoderTraits.h"
 #include "DecoderTypes.h"
-#include "GPUVideoImage.h"
 #include "H264.h"
 #include "ImageContainer.h"
 #include "MediaContainerType.h"
@@ -20,20 +19,12 @@
 #include "mozilla/Try.h"
 #include "mozilla/dom/EncodedVideoChunk.h"
 #include "mozilla/dom/EncodedVideoChunkBinding.h"
-#include "mozilla/dom/ImageUtils.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/VideoColorSpaceBinding.h"
 #include "mozilla/dom/VideoDecoderBinding.h"
 #include "mozilla/dom/VideoFrameBinding.h"
 #include "mozilla/dom/WebCodecsUtils.h"
 #include "nsPrintfCString.h"
-
-#ifdef XP_MACOSX
-#  include "MacIOSurfaceImage.h"
-#elif MOZ_WAYLAND
-#  include "mozilla/layers/DMABUFSurfaceImage.h"
-#  include "mozilla/widget/DMABufSurface.h"
-#endif
 
 extern mozilla::LazyLogModule gWebCodecsLog;
 
@@ -281,277 +272,6 @@ static Result<Ok, nsresult> CloneConfiguration(
   return Ok();
 }
 
-static Maybe<VideoPixelFormat> PlanarPixelFormat(
-    gfx::ChromaSubsampling aSubsampling, gfx::ColorDepth aDepth) {
-  switch (aDepth) {
-    case gfx::ColorDepth::COLOR_8:
-      switch (aSubsampling) {
-        case gfx::ChromaSubsampling::FULL:
-          return Some(VideoPixelFormat::I444);
-        case gfx::ChromaSubsampling::HALF_WIDTH:
-          return Some(VideoPixelFormat::I422);
-        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
-          return Some(VideoPixelFormat::I420);
-      }
-      break;
-    case gfx::ColorDepth::COLOR_10:
-      switch (aSubsampling) {
-        case gfx::ChromaSubsampling::FULL:
-          return Some(VideoPixelFormat::I444P10);
-        case gfx::ChromaSubsampling::HALF_WIDTH:
-          return Some(VideoPixelFormat::I422P10);
-        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
-          return Some(VideoPixelFormat::I420P10);
-      }
-      break;
-    case gfx::ColorDepth::COLOR_12:
-      switch (aSubsampling) {
-        case gfx::ChromaSubsampling::FULL:
-          return Some(VideoPixelFormat::I444P12);
-        case gfx::ChromaSubsampling::HALF_WIDTH:
-          return Some(VideoPixelFormat::I422P12);
-        case gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT:
-          return Some(VideoPixelFormat::I420P12);
-      }
-      break;
-    case gfx::ColorDepth::COLOR_16:
-      break;
-  }
-  return Nothing();
-}
-
-static Maybe<VideoPixelFormat> GuessPixelFormat(layers::Image* aImage) {
-  if (aImage) {
-    // TODO: Implement ImageUtils::Impl for MacIOSurfaceImage and
-    // DMABUFSurfaceImage?
-    if (aImage->AsPlanarYCbCrImage() || aImage->AsNVImage()) {
-      const ImageUtils imageUtils(aImage);
-      Maybe<dom::ImageBitmapFormat> format = imageUtils.GetFormat();
-      Maybe<VideoPixelFormat> f =
-          format.isSome() ? ImageBitmapFormatToVideoPixelFormat(format.value())
-                          : Nothing();
-
-      // ImageBitmapFormat cannot distinguish YUV420 or YUV420A.
-      bool hasAlpha = aImage->AsPlanarYCbCrImage() &&
-                      aImage->AsPlanarYCbCrImage()->GetData() &&
-                      aImage->AsPlanarYCbCrImage()->GetData()->mAlpha;
-      if (f && *f == VideoPixelFormat::I420 && hasAlpha) {
-        return Some(VideoPixelFormat::I420A);
-      }
-      return f;
-    }
-    if (layers::GPUVideoImage* image = aImage->AsGPUVideoImage()) {
-      if (Maybe<gfx::ChromaSubsampling> subsampling =
-              image->GetChromaSubsampling()) {
-        if (Maybe<VideoPixelFormat> format =
-                PlanarPixelFormat(*subsampling, image->GetColorDepth())) {
-          return format;
-        }
-      }
-      RefPtr<layers::ImageBridgeChild> imageBridge =
-          layers::ImageBridgeChild::GetSingleton();
-      layers::TextureClient* texture = image->GetTextureClient(imageBridge);
-      if (NS_WARN_IF(!texture)) {
-        return Nothing();
-      }
-      return SurfaceFormatToVideoPixelFormat(texture->GetFormat());
-    }
-#ifdef XP_MACOSX
-    if (layers::MacIOSurfaceImage* image = aImage->AsMacIOSurfaceImage()) {
-      MOZ_ASSERT(image->GetSurface());
-      return SurfaceFormatToVideoPixelFormat(image->GetSurface()->GetFormat());
-    }
-#endif
-#ifdef MOZ_WAYLAND
-    if (layers::DMABUFSurfaceImage* image = aImage->AsDMABUFSurfaceImage()) {
-      MOZ_ASSERT(image->GetSurface());
-      return SurfaceFormatToVideoPixelFormat(image->GetSurface()->GetFormat());
-    }
-#endif
-  }
-  LOGW("Failed to get pixel format from layers::Image");
-  return Nothing();
-}
-
-static VideoColorSpaceInternal GuessColorSpace(
-    const layers::PlanarYCbCrData* aData) {
-  if (!aData) {
-    LOGE("nullptr in GuessColorSpace");
-    return {};
-  }
-
-  VideoColorSpaceInternal colorSpace;
-  colorSpace.mFullRange = Some(ToFullRange(aData->mColorRange));
-  if (Maybe<VideoMatrixCoefficients> m =
-          ToMatrixCoefficients(aData->mYUVColorSpace)) {
-    colorSpace.mMatrix = ToMatrixCoefficients(aData->mYUVColorSpace);
-    colorSpace.mPrimaries = ToPrimaries(aData->mColorPrimaries);
-  }
-  if (!colorSpace.mPrimaries) {
-    LOG("Missing primaries, guessing from colorspace");
-    // Make an educated guess based on the coefficients.
-    colorSpace.mPrimaries = colorSpace.mMatrix.map([](const auto& aMatrix) {
-      switch (aMatrix) {
-        case VideoMatrixCoefficients::Bt2020_ncl:
-          return VideoColorPrimaries::Bt2020;
-        case VideoMatrixCoefficients::Rgb:
-        case VideoMatrixCoefficients::Bt470bg:
-        case VideoMatrixCoefficients::Smpte170m:
-          LOGW(
-              "Warning: Falling back to BT709 when attempting to determine the "
-              "primaries function of a YCbCr buffer");
-          [[fallthrough]];
-        case VideoMatrixCoefficients::Bt709:
-          return VideoColorPrimaries::Bt709;
-      }
-      MOZ_ASSERT_UNREACHABLE("Unexpected matrix coefficients");
-      LOGW(
-          "Warning: Falling back to BT709 due to unexpected matrix "
-          "coefficients "
-          "when attempting to determine the primaries function of a YCbCr "
-          "buffer");
-      return VideoColorPrimaries::Bt709;
-    });
-  }
-
-  if (Maybe<VideoTransferCharacteristics> c =
-          ToTransferCharacteristics(aData->mTransferFunction)) {
-    colorSpace.mTransfer = Some(*c);
-  }
-  if (!colorSpace.mTransfer) {
-    LOG("Missing transfer characteristics, guessing from colorspace");
-    colorSpace.mTransfer = Some(([&] {
-      switch (aData->mYUVColorSpace) {
-        case gfx::YUVColorSpace::Identity:
-          return VideoTransferCharacteristics::Iec61966_2_1;
-        case gfx::YUVColorSpace::BT2020:
-          return VideoTransferCharacteristics::Pq;
-        case gfx::YUVColorSpace::BT601:
-          LOGW(
-              "Warning: Falling back to BT709 when attempting to determine the "
-              "transfer function of a MacIOSurface");
-          [[fallthrough]];
-        case gfx::YUVColorSpace::BT709:
-          return VideoTransferCharacteristics::Bt709;
-      }
-      MOZ_ASSERT_UNREACHABLE("Unexpected color space");
-      LOGW(
-          "Warning: Falling back to BT709 due to unexpected color space "
-          "when attempting to determine the transfer function of a "
-          "MacIOSurface");
-      return VideoTransferCharacteristics::Bt709;
-    })());
-  }
-
-  return colorSpace;
-}
-
-#ifdef XP_MACOSX
-static VideoColorSpaceInternal GuessColorSpace(const MacIOSurface* aSurface) {
-  if (!aSurface) {
-    return {};
-  }
-  VideoColorSpaceInternal colorSpace;
-  colorSpace.mFullRange = Some(aSurface->IsFullRange());
-  if (Maybe<dom::VideoMatrixCoefficients> m =
-          ToMatrixCoefficients(aSurface->GetYUVColorSpace())) {
-    colorSpace.mMatrix = Some(*m);
-  }
-  if (Maybe<VideoColorPrimaries> p = ToPrimaries(aSurface->mColorPrimaries)) {
-    colorSpace.mPrimaries = Some(*p);
-  }
-  // Make an educated guess based on the coefficients.
-  if (aSurface->GetYUVColorSpace() == gfx::YUVColorSpace::Identity) {
-    colorSpace.mTransfer = Some(VideoTransferCharacteristics::Iec61966_2_1);
-  } else if (aSurface->GetYUVColorSpace() == gfx::YUVColorSpace::BT709) {
-    colorSpace.mTransfer = Some(VideoTransferCharacteristics::Bt709);
-  } else if (aSurface->GetYUVColorSpace() == gfx::YUVColorSpace::BT2020) {
-    colorSpace.mTransfer = Some(VideoTransferCharacteristics::Pq);
-  } else {
-    LOGW(
-        "Warning: Falling back to BT709 when attempting to determine the "
-        "transfer function of a MacIOSurface");
-    colorSpace.mTransfer = Some(VideoTransferCharacteristics::Bt709);
-  }
-
-  return colorSpace;
-}
-#endif
-#ifdef MOZ_WAYLAND
-// TODO: Set DMABufSurface::IsFullRange() to const so aSurface can be const.
-static VideoColorSpaceInternal GuessColorSpace(DMABufSurface* aSurface) {
-  if (!aSurface) {
-    return {};
-  }
-  VideoColorSpaceInternal colorSpace;
-  colorSpace.mFullRange = Some(aSurface->IsFullRange());
-  if (Maybe<dom::VideoMatrixCoefficients> m =
-          ToMatrixCoefficients(aSurface->GetYUVColorSpace())) {
-    colorSpace.mMatrix = Some(*m);
-  }
-  // No other color space information.
-  return colorSpace;
-}
-#endif
-
-static VideoColorSpaceInternal GuessColorSpace(layers::Image* aImage) {
-  if (aImage) {
-    if (layers::PlanarYCbCrImage* image = aImage->AsPlanarYCbCrImage()) {
-      return GuessColorSpace(image->GetData());
-    }
-    if (layers::NVImage* image = aImage->AsNVImage()) {
-      return GuessColorSpace(image->GetData());
-    }
-    if (layers::GPUVideoImage* image = aImage->AsGPUVideoImage()) {
-      VideoColorSpaceInternal colorSpace;
-      colorSpace.mFullRange =
-          Some(image->GetColorRange() != gfx::ColorRange::LIMITED);
-      colorSpace.mMatrix = ToMatrixCoefficients(image->GetYUVColorSpace());
-      colorSpace.mPrimaries = ToPrimaries(image->GetColorPrimaries());
-      colorSpace.mTransfer =
-          ToTransferCharacteristics(image->GetTransferFunction());
-      // In some circumstances, e.g. on Linux software decoding when using
-      // VPXDecoder and RDD, the primaries aren't set correctly. Make a good
-      // guess based on the other params. Fixing this is tracked in
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=1869825
-      if (!colorSpace.mPrimaries) {
-        if (colorSpace.mMatrix.isSome()) {
-          switch (colorSpace.mMatrix.value()) {
-            case VideoMatrixCoefficients::Rgb:
-            case VideoMatrixCoefficients::Bt709:
-              colorSpace.mPrimaries = Some(VideoColorPrimaries::Bt709);
-              break;
-            case VideoMatrixCoefficients::Bt470bg:
-            case VideoMatrixCoefficients::Smpte170m:
-              colorSpace.mPrimaries = Some(VideoColorPrimaries::Bt470bg);
-              break;
-            case VideoMatrixCoefficients::Bt2020_ncl:
-              colorSpace.mPrimaries = Some(VideoColorPrimaries::Bt2020);
-              break;
-          };
-        }
-      }
-      return colorSpace;
-    }
-#ifdef XP_MACOSX
-    // TODO: Make sure VideoFrame can interpret its internal data in different
-    // formats.
-    if (layers::MacIOSurfaceImage* image = aImage->AsMacIOSurfaceImage()) {
-      return GuessColorSpace(image->GetSurface());
-    }
-#endif
-#ifdef MOZ_WAYLAND
-    // TODO: Make sure VideoFrame can interpret its internal data in different
-    // formats.
-    if (layers::DMABUFSurfaceImage* image = aImage->AsDMABUFSurfaceImage()) {
-      return GuessColorSpace(image->GetSurface());
-    }
-#endif
-  }
-  LOGW("Failed to get color space from layers::Image");
-  return {};
-}
-
 static Result<gfx::IntSize, nsresult> AdjustDisplaySize(
     const uint32_t aDisplayAspectWidth, const uint32_t aDisplayAspectHeight,
     const gfx::IntSize& aDisplaySize) {
@@ -589,12 +309,15 @@ static RefPtr<VideoFrame> CreateVideoFrame(
     nsIGlobalObject* aGlobalObject, const VideoData* aData, int64_t aTimestamp,
     uint64_t aDuration, const Maybe<uint32_t> aDisplayAspectWidth,
     const Maybe<uint32_t> aDisplayAspectHeight,
-    const VideoColorSpaceInternal& aColorSpace) {
+    const Maybe<VideoColorSpaceInternal>& aOverrideColorSpace) {
   MOZ_ASSERT(aGlobalObject);
   MOZ_ASSERT(aData);
   MOZ_ASSERT((!!aDisplayAspectWidth) == (!!aDisplayAspectHeight));
 
-  Maybe<VideoPixelFormat> format = GuessPixelFormat(aData->mImage.get());
+  Maybe<VideoPixelFormat> format =
+      VideoPixelFormatFromImage(aData->mImage.get());
+  VideoColorSpaceInternal colorSpace =
+      ResolveVideoColorSpace(aData->mImage.get(), format, aOverrideColorSpace);
   gfx::IntSize displaySize = aData->mDisplay;
   if (aDisplayAspectWidth && aDisplayAspectHeight) {
     auto r = AdjustDisplaySize(*aDisplayAspectWidth, *aDisplayAspectHeight,
@@ -607,7 +330,7 @@ static RefPtr<VideoFrame> CreateVideoFrame(
   return MakeRefPtr<VideoFrame>(aGlobalObject, aData->mImage, format,
                                 aData->mImage->GetSize(),
                                 aData->mImage->GetPictureRect(), displaySize,
-                                Some(aDuration), aTimestamp, aColorSpace);
+                                Some(aDuration), aTimestamp, colorSpace);
 }
 
 /* static */
@@ -962,22 +685,11 @@ nsTArray<RefPtr<VideoFrame>> VideoDecoder::DecodedDataToOutputType(
   for (const RefPtr<MediaData>& data : aData) {
     MOZ_RELEASE_ASSERT(data->mType == MediaData::Type::VIDEO_DATA);
     RefPtr<const VideoData> d(data->As<const VideoData>());
-    VideoColorSpaceInternal colorSpace;
-    // Determine which color space to use: prefer the color space as configured
-    // at the decoder level, if it has one, otherwise look at the underlying
-    // image and make a guess.
-    if (aConfig.mColorSpace.isSome() &&
-        aConfig.mColorSpace->mPrimaries.isSome() &&
-        aConfig.mColorSpace->mTransfer.isSome() &&
-        aConfig.mColorSpace->mMatrix.isSome()) {
-      colorSpace = aConfig.mColorSpace.value();
-    } else {
-      colorSpace = GuessColorSpace(d->mImage.get());
-    }
-    frames.AppendElement(CreateVideoFrame(
-        aGlobalObject, d.get(), d->mTime.ToMicroseconds(),
-        static_cast<uint64_t>(d->mDuration.ToMicroseconds()),
-        aConfig.mDisplayAspectWidth, aConfig.mDisplayAspectHeight, colorSpace));
+    frames.AppendElement(
+        CreateVideoFrame(aGlobalObject, d.get(), d->mTime.ToMicroseconds(),
+                         static_cast<uint64_t>(d->mDuration.ToMicroseconds()),
+                         aConfig.mDisplayAspectWidth,
+                         aConfig.mDisplayAspectHeight, aConfig.mColorSpace));
   }
   return frames;
 }
