@@ -1,0 +1,1 @@
+/home/cm/dotfiles/mozilla/firefox/dot.claude/hooks/post-edit-static-analysis.sh
