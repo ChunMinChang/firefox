@@ -10,8 +10,12 @@ support-files = [
   "encoding_process.js",
   "green.png",
   "multiple.ico",
+  "quadrants-h264.annexb",
+  "quadrants-vp9.ivf",
   "quadrants-vp9.webm",
   "videoFrameFormatChecks.js",
+  "videoFrameRemoteDecode.js",
+  "videoFrameRemoteDecodeWorker.js",
 ]
 
 ["test_bug1921817.html"]
@@ -52,6 +56,12 @@ scheme = "https"
 scheme = "https"
 
 ["test_videoFrame_mismatched_codedSize.html"]
+
+["test_videoFrame_remote_decode.html"]
+scheme = "https"
+skip-if = [
+  "os == 'android'", # Platform decoders hand back opaque textures, see bug 1969762
+]
 
 ["test_videoFrame_video_element.html"]
 scheme = "https"

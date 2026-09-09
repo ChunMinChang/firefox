@@ -1,0 +1,61 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>Test the format and plane copy of remote-decoded VideoFrames</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+<script src="videoFrameFormatChecks.js"></script>
+<script src="videoFrameRemoteDecode.js"></script>
+<script type="application/javascript">
+
+add_task(async function testRemoteDecodedFrames() {
+  const os = SpecialPowers.Services.appinfo.OS;
+  const expected = EXPECTED_FORMATS[os];
+  ok(expected, `expectations exist for ${os}`);
+  for (const fixture of FIXTURES) {
+    await testFixture(fixture, expected[fixture.name], `${fixture.name} (RDD)`);
+  }
+});
+
+add_task(async function testRemoteDecodedFramesInWorker() {
+  const worker = new Worker("videoFrameRemoteDecodeWorker.js");
+  await new Promise(resolve => {
+    worker.onmessage = ({ data }) => {
+      switch (data.type) {
+        case "ok":
+          ok(data.condition, data.message);
+          break;
+        case "is":
+          is(data.actual, data.expected, data.message);
+          break;
+        case "info":
+          info(data.message);
+          break;
+        case "done":
+          resolve();
+          break;
+      }
+    };
+    worker.onerror = e => {
+      ok(false, `worker error: ${e.message}`);
+      resolve();
+    };
+    worker.postMessage({ os: SpecialPowers.Services.appinfo.OS });
+  });
+  worker.terminate();
+});
+
+// The format must not depend on how the frame crossed the process boundary.
+add_task(async function testInProcessDecodedFrames() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["media.rdd-process.enabled", false]],
+  });
+  await testFixture(FIXTURES[0], ["I420"], "vp9 (content)");
+  await SpecialPowers.popPrefEnv();
+});
+
+</script>
+</head>
+<body>
+</body>
+</html>

@@ -6,12 +6,14 @@
 """Generate the quadrants fixtures checked by videoFrameFormatChecks.js.
 
 Each fixture encodes the same 64x64 I420 picture, the QUADRANTS table in
-videoFrameFormatChecks.js, losslessly, so every frame decodes to it exactly.
-Not run by CI; regenerate every fixture or the named ones:
+videoFrameFormatChecks.js: VP9 losslessly, H.264 as Constrained Baseline at
+qp=1, which is exact on flat blocks where qp=0 would force High 4:4:4. Every
+fixture decodes to the picture exactly. Not run by CI; regenerate every
+fixture or the named ones:
 
   ./generate_quadrants_fixtures.py [FIXTURE...]
 
-The checked-in fixtures were generated with FFmpeg 6.1.1 (libvpx-vp9).
+The checked-in fixtures were generated with FFmpeg 6.1.1 (libvpx-vp9, libx264).
 """
 
 import argparse
@@ -26,9 +28,38 @@ FRAME_RATE = "30"
 QUADRANTS = [(81, 90, 240), (145, 54, 34), (41, 240, 110), (210, 16, 146)]
 
 FIXTURES = {
+    "quadrants-vp9.ivf": {
+        "frames": 1,
+        "args": ["-c:v", "libvpx-vp9", "-lossless", "1", "-f", "ivf"],
+    },
     "quadrants-vp9.webm": {
         "frames": 10,
         "args": ["-c:v", "libvpx-vp9", "-lossless", "1", "-g", "5", "-f", "webm"],
+    },
+    "quadrants-h264.annexb": {
+        "frames": 1,
+        "args": [
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "baseline",
+            "-level",
+            "3.0",
+            "-qp",
+            "1",
+            "-x264-params",
+            "keyint=1:bframes=0:aud=0",
+            "-colorspace",
+            "smpte170m",
+            "-color_primaries",
+            "smpte170m",
+            "-color_trc",
+            "smpte170m",
+            "-color_range",
+            "tv",
+            "-f",
+            "h264",
+        ],
     },
 }
 
