@@ -20,7 +20,6 @@
 #include "mozilla/Try.h"
 #include "mozilla/dom/EncodedVideoChunk.h"
 #include "mozilla/dom/EncodedVideoChunkBinding.h"
-#include "mozilla/dom/ImageUtils.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/VideoColorSpaceBinding.h"
 #include "mozilla/dom/VideoDecoderBinding.h"
@@ -282,52 +281,6 @@ static Result<Ok, nsresult> CloneConfiguration(
   return Ok();
 }
 
-static Maybe<VideoPixelFormat> GuessPixelFormat(layers::Image* aImage) {
-  if (aImage) {
-    // TODO: Implement ImageUtils::Impl for MacIOSurfaceImage and
-    // DMABUFSurfaceImage?
-    if (aImage->AsPlanarYCbCrImage() || aImage->AsNVImage()) {
-      const ImageUtils imageUtils(aImage);
-      Maybe<dom::ImageBitmapFormat> format = imageUtils.GetFormat();
-      Maybe<VideoPixelFormat> f =
-          format.isSome() ? ImageBitmapFormatToVideoPixelFormat(format.value())
-                          : Nothing();
-
-      // ImageBitmapFormat cannot distinguish YUV420 or YUV420A.
-      bool hasAlpha = aImage->AsPlanarYCbCrImage() &&
-                      aImage->AsPlanarYCbCrImage()->GetData() &&
-                      aImage->AsPlanarYCbCrImage()->GetData()->mAlpha;
-      if (f && *f == VideoPixelFormat::I420 && hasAlpha) {
-        return Some(VideoPixelFormat::I420A);
-      }
-      return f;
-    }
-    if (layers::GPUVideoImage* image = aImage->AsGPUVideoImage()) {
-      RefPtr<layers::ImageBridgeChild> imageBridge =
-          layers::ImageBridgeChild::GetSingleton();
-      layers::TextureClient* texture = image->GetTextureClient(imageBridge);
-      if (NS_WARN_IF(!texture)) {
-        return Nothing();
-      }
-      return SurfaceFormatToVideoPixelFormat(texture->GetFormat());
-    }
-#ifdef XP_MACOSX
-    if (layers::MacIOSurfaceImage* image = aImage->AsMacIOSurfaceImage()) {
-      MOZ_ASSERT(image->GetSurface());
-      return SurfaceFormatToVideoPixelFormat(image->GetSurface()->GetFormat());
-    }
-#endif
-#ifdef MOZ_WAYLAND
-    if (layers::DMABUFSurfaceImage* image = aImage->AsDMABUFSurfaceImage()) {
-      MOZ_ASSERT(image->GetSurface());
-      return SurfaceFormatToVideoPixelFormat(image->GetSurface()->GetFormat());
-    }
-#endif
-  }
-  LOGW("Failed to get pixel format from layers::Image");
-  return Nothing();
-}
-
 static VideoColorSpaceInternal GuessColorSpace(
     const layers::PlanarYCbCrData* aData) {
   if (!aData) {
@@ -549,7 +502,10 @@ static RefPtr<VideoFrame> CreateVideoFrame(
   MOZ_ASSERT(aData);
   MOZ_ASSERT((!!aDisplayAspectWidth) == (!!aDisplayAspectHeight));
 
-  Maybe<VideoPixelFormat> format = GuessPixelFormat(aData->mImage.get());
+  Maybe<VideoPixelFormat> format = GuessVideoPixelFormat(aData->mImage.get());
+  if (!format) {
+    LOGW("Failed to get pixel format from layers::Image");
+  }
   gfx::IntSize displaySize = aData->mDisplay;
   if (aDisplayAspectWidth && aDisplayAspectHeight) {
     auto r = AdjustDisplaySize(*aDisplayAspectWidth, *aDisplayAspectHeight,
