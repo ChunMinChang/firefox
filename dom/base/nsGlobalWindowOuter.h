@@ -82,7 +82,6 @@ class ThrottledEventQueue;
 class ScrollContainerFrame;
 namespace dom {
 class BarProp;
-struct ChannelPixelLayout;
 class Console;
 class Crypto;
 class CustomElementRegistry;
@@ -91,7 +90,6 @@ class Document;
 class External;
 class Function;
 class Gamepad;
-enum class ImageBitmapFormat : uint8_t;
 class IntlUtils;
 class Location;
 class MediaQueryList;
