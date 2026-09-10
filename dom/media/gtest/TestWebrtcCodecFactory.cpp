@@ -70,7 +70,7 @@ struct TestWebrtcVideoEncoderFactory : public WebrtcVideoEncoderFactory,
     media::EncodeSupportSet h264GmpSupport =
         WebrtcVideoEncoderFactory::SupportsCodec(EncoderConfig(
             CodecType::H264, {640, 480}, Usage::Realtime,
-            EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420P), 30,
+            EncoderConfig::SampleFormat(mozilla::ImagePixelFormat::I420), 30,
             240, 100'000, 50'000, 1'000'000, BitrateMode::Constant,
             HardwarePreference::None, ScalabilityMode::None,
             EncoderConfig::CodecSpecific(H264Specific())));
