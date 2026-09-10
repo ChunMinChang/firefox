@@ -172,6 +172,7 @@ EXPORTS += [
     "FrameStatistics.h",
     "HDRUtils.h",
     "ImageConversion.h",
+    "ImagePixelFormat.h",
     "Intervals.h",
     "MediaCache.h",
     "MediaContainerType.h",
@@ -354,8 +355,10 @@ else:
 if CONFIG["ENABLE_TESTS"] or CONFIG["FUZZING"]:
     UNIFIED_SOURCES += ["MockCubeb.cpp"]
 
-# MediaData.cpp : ambiguous compilation error caused by Mac OS X headers.
+# ImagePixelFormat.cpp, MediaData.cpp : ambiguous compilation error caused by
+# Mac OS X headers.
 SOURCES += [
+    "ImagePixelFormat.cpp",
     "MediaData.cpp",
 ]
 
