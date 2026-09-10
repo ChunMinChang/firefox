@@ -4,25 +4,24 @@
 
 #include "ImageContainer.h"
 #include "ImageConversion.h"
+#include "ImagePixelFormat.h"
 #include "SourceSurfaceRawData.h"
 #include "gtest/gtest.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/dom/ImageBitmapBinding.h"
-#include "mozilla/dom/ImageUtils.h"
 
 using mozilla::CheckedInt;
 using mozilla::ConvertToI420;
 using mozilla::ConvertToNV12;
 using mozilla::ConvertToRGBA;
+using mozilla::ImagePixelFormat;
 using mozilla::MakeAndAddRef;
 using mozilla::MakeRefPtr;
 using mozilla::MakeUnique;
 using mozilla::Maybe;
 using mozilla::Nothing;
 using mozilla::Some;
-using mozilla::dom::ImageBitmapFormat;
 using mozilla::gfx::ChromaSize;
 using mozilla::gfx::ChromaSubsampling;
 using mozilla::gfx::DataSourceSurface;
@@ -37,32 +36,32 @@ using mozilla::layers::SourceSurfaceImage;
 
 class TestRedPlanarYCbCrImage2x2 final : public PlanarYCbCrImage {
  public:
-  explicit TestRedPlanarYCbCrImage2x2(ImageBitmapFormat aFormat) {
+  explicit TestRedPlanarYCbCrImage2x2(ImagePixelFormat aFormat) {
     mSize = IntSize(2, 2);
     mBufferSize = sizeof(mY) + sizeof(mU) + sizeof(mV);
     mData.mPictureRect = mozilla::gfx::IntRect(mozilla::gfx::IntPoint(), mSize);
     mData.mYChannel = mY;
     mData.mYStride = 2;
     switch (aFormat) {
-      case ImageBitmapFormat::YUV420P:
+      case ImagePixelFormat::I420:
         mData.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
         mData.mCbChannel = mU;
         mData.mCrChannel = mV;
         mData.mCbCrStride = 1;
         break;
-      case ImageBitmapFormat::YUV422P:
+      case ImagePixelFormat::I422:
         mData.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH;
         mData.mCbChannel = mU;
         mData.mCrChannel = mV;
         mData.mCbCrStride = 1;
         break;
-      case ImageBitmapFormat::YUV444P:
+      case ImagePixelFormat::I444:
         mData.mChromaSubsampling = ChromaSubsampling::FULL;
         mData.mCbChannel = mU;
         mData.mCrChannel = mV;
         mData.mCbCrStride = 2;
         break;
-      case ImageBitmapFormat::YUV420SP_NV12:
+      case ImagePixelFormat::NV12:
         mData.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
         mData.mCbChannel = mU;
         mData.mCrChannel = mData.mCbChannel + 1;
@@ -72,7 +71,7 @@ class TestRedPlanarYCbCrImage2x2 final : public PlanarYCbCrImage {
         mU[1] = mV[0];
         mU[3] = mV[1];
         break;
-      case ImageBitmapFormat::YUV420SP_NV21:
+      case ImagePixelFormat::NV21:
         mData.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
         mData.mCrChannel = mU;
         mData.mCbChannel = mData.mCrChannel + 1;
@@ -83,7 +82,7 @@ class TestRedPlanarYCbCrImage2x2 final : public PlanarYCbCrImage {
         mU[2] = mV[1];
         break;
       default:
-        MOZ_CRASH("Unsupported ImageBitmapFormat!");
+        MOZ_CRASH("Unsupported ImagePixelFormat!");
         break;
     }
   }
@@ -316,15 +315,9 @@ TEST(MediaImageConversion, ConvertToI420)
   static constexpr uint8_t vRed2x2[20] = {0xEF, 0xEF, 0xEF, 0xEF};
 
   auto checkImage = [&](mozilla::layers::Image* aImage,
-                        const Maybe<ImageBitmapFormat>& aFormat) {
+                        const Maybe<ImagePixelFormat>& aFormat) {
     ASSERT_TRUE(!!aImage);
-
-    mozilla::dom::ImageUtils utils(aImage);
-    Maybe<ImageBitmapFormat> format = utils.GetFormat();
-    ASSERT_EQ(format.isSome(), aFormat.isSome());
-    if (format.isSome()) {
-      ASSERT_EQ(format.value(), aFormat.value());
-    }
+    ASSERT_EQ(mozilla::ImageToPixelFormat(aImage), aFormat);
 
     EXPECT_TRUE(
         NS_SUCCEEDED(ConvertToI420(aImage, y, 2, u, 1, v, 1, IntSize(2, 2))));
@@ -341,35 +334,35 @@ TEST(MediaImageConversion, ConvertToI420)
 
   RefPtr<SourceSurfaceImage> imgRgba =
       CreateRedSurfaceImage2x2(SurfaceFormat::R8G8B8A8);
-  checkImage(imgRgba, Some(ImageBitmapFormat::RGBA32));
+  checkImage(imgRgba, Some(ImagePixelFormat::RGBA));
 
   RefPtr<SourceSurfaceImage> imgBgra =
       CreateRedSurfaceImage2x2(SurfaceFormat::B8G8R8A8);
-  checkImage(imgBgra, Some(ImageBitmapFormat::BGRA32));
+  checkImage(imgBgra, Some(ImagePixelFormat::BGRA));
 
   RefPtr<SourceSurfaceImage> imgRgb565 =
       CreateRedSurfaceImage2x2(SurfaceFormat::R5G6B5_UINT16);
   checkImage(imgRgb565, Nothing());
 
   auto imgYuv420p =
-      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImageBitmapFormat::YUV420P);
-  checkImage(imgYuv420p, Some(ImageBitmapFormat::YUV420P));
+      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImagePixelFormat::I420);
+  checkImage(imgYuv420p, Some(ImagePixelFormat::I420));
 
   auto imgYuv422p =
-      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImageBitmapFormat::YUV422P);
-  checkImage(imgYuv422p, Some(ImageBitmapFormat::YUV422P));
+      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImagePixelFormat::I422);
+  checkImage(imgYuv422p, Some(ImagePixelFormat::I422));
 
   auto imgYuv444p =
-      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImageBitmapFormat::YUV444P);
-  checkImage(imgYuv444p, Some(ImageBitmapFormat::YUV444P));
+      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImagePixelFormat::I444);
+  checkImage(imgYuv444p, Some(ImagePixelFormat::I444));
 
   auto imgYuvNv12 =
-      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImageBitmapFormat::YUV420SP_NV12);
-  checkImage(imgYuvNv12, Some(ImageBitmapFormat::YUV420SP_NV12));
+      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImagePixelFormat::NV12);
+  checkImage(imgYuvNv12, Some(ImagePixelFormat::NV12));
 
   auto imgYuvNv21 =
-      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImageBitmapFormat::YUV420SP_NV21);
-  checkImage(imgYuvNv21, Some(ImageBitmapFormat::YUV420SP_NV21));
+      MakeRefPtr<TestRedPlanarYCbCrImage2x2>(ImagePixelFormat::NV21);
+  checkImage(imgYuvNv21, Some(ImagePixelFormat::NV21));
 }
 
 // The smallest of the pair of source dimensions used by the bounds tests.

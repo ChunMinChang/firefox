@@ -5,14 +5,13 @@
 #include "ImageConversion.h"
 
 #include "ImageContainer.h"
+#include "ImagePixelFormat.h"
 #include "YCbCrUtils.h"
 #include "libyuv/convert.h"
 #include "libyuv/convert_from_argb.h"
 #include "libyuv/scale_argb.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/dom/ImageBitmapBinding.h"
-#include "mozilla/dom/ImageUtils.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/gfx/Swizzle.h"
 #include "nsThreadUtils.h"
@@ -26,8 +25,6 @@ using mozilla::ImageFormat;
 using mozilla::Maybe;
 using mozilla::Nothing;
 using mozilla::Some;
-using mozilla::dom::ImageBitmapFormat;
-using mozilla::dom::ImageUtils;
 using mozilla::gfx::DataSourceSurface;
 using mozilla::gfx::IntSize;
 using mozilla::gfx::SourceSurface;
@@ -177,12 +174,11 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
   uint8_t* srcCb = nullptr;
   uint8_t* srcCr = nullptr;
 
-  Maybe<dom::ImageBitmapFormat> format;
+  Maybe<ImagePixelFormat> format;
   if (data) {
-    const ImageUtils imageUtils(aImage);
-    format = imageUtils.GetFormat();
+    format = ImageToPixelFormat(aImage);
     if (format.isNothing()) {
-      MOZ_ASSERT_UNREACHABLE("YUV format conversion not implemented");
+      NS_WARNING("ConvertToI420: unnamed YUV layout");
       return NS_ERROR_NOT_IMPLEMENTED;
     }
 
@@ -196,7 +192,8 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
     srcCr = picture->mCr;
 
     switch (format.value()) {
-      case ImageBitmapFormat::YUV420P:
+      case ImagePixelFormat::I420:
+      case ImagePixelFormat::I420A:
         // Since the input and output formats match, we can copy or scale
         // directly to the output buffer.
         if (needsScale) {
@@ -211,7 +208,8 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
             srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
             data->mCbCrStride, aDestY, aDestStrideY, aDestU, aDestStrideU,
             aDestV, aDestStrideV, aDestSize.width, aDestSize.height));
-      case ImageBitmapFormat::YUV422P:
+      case ImagePixelFormat::I422:
+      case ImagePixelFormat::I422A:
         if (!needsScale) {
           return MapRv(libyuv::I422ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
@@ -219,7 +217,8 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
               aDestV, aDestStrideV, aDestSize.width, aDestSize.height));
         }
         break;
-      case ImageBitmapFormat::YUV444P:
+      case ImagePixelFormat::I444:
+      case ImagePixelFormat::I444A:
         if (!needsScale) {
           return MapRv(libyuv::I444ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
@@ -227,7 +226,7 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
               aDestV, aDestStrideV, aDestSize.width, aDestSize.height));
         }
         break;
-      case ImageBitmapFormat::YUV420SP_NV12:
+      case ImagePixelFormat::NV12:
         if (!needsScale) {
           return MapRv(libyuv::NV12ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, aDestY,
@@ -235,7 +234,7 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
               aDestSize.width, aDestSize.height));
         }
         break;
-      case ImageBitmapFormat::YUV420SP_NV21:
+      case ImagePixelFormat::NV21:
         if (!needsScale) {
           return MapRv(libyuv::NV21ToI420(
               srcY, data->mYStride, srcCr, data->mCbCrStride, aDestY,
@@ -245,7 +244,7 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
         earlyScale = false;
         break;
       default:
-        MOZ_ASSERT_UNREACHABLE("YUV format conversion not implemented");
+        NS_WARNING("ConvertToI420: only 8-bit YUV sources are supported");
         return NS_ERROR_NOT_IMPLEMENTED;
     }
   } else {
@@ -379,27 +378,29 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
     // First convert whatever the input format is to I420 into the temp buffer.
     if (data) {
       switch (format.value()) {
-        case ImageBitmapFormat::YUV422P:
+        case ImagePixelFormat::I422:
+        case ImagePixelFormat::I422A:
           rv = MapRv(libyuv::I422ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
               data->mCbCrStride, tempBufY, tempBufSize.width, tempBufU,
               tempBufCbCrSize.width, tempBufV, tempBufCbCrSize.width,
               tempBufSize.width, tempBufSize.height));
           break;
-        case ImageBitmapFormat::YUV444P:
+        case ImagePixelFormat::I444:
+        case ImagePixelFormat::I444A:
           rv = MapRv(libyuv::I444ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
               data->mCbCrStride, tempBufY, tempBufSize.width, tempBufU,
               tempBufCbCrSize.width, tempBufV, tempBufCbCrSize.width,
               tempBufSize.width, tempBufSize.height));
           break;
-        case ImageBitmapFormat::YUV420SP_NV12:
+        case ImagePixelFormat::NV12:
           rv = MapRv(libyuv::NV12ToI420(
               srcY, data->mYStride, srcCb, data->mCbCrStride, tempBufY,
               tempBufSize.width, tempBufU, tempBufCbCrSize.width, tempBufV,
               tempBufCbCrSize.width, tempBufSize.width, tempBufSize.height));
           break;
-        case ImageBitmapFormat::YUV420SP_NV21:
+        case ImagePixelFormat::NV21:
           rv = MapRv(libyuv::NV21ToI420(
               srcY, data->mYStride, srcCr, data->mCbCrStride, tempBufY,
               tempBufSize.width, tempBufU, tempBufCbCrSize.width, tempBufV,
@@ -456,7 +457,8 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
     // First scale in the input format to the desired size into temp buffer, and
     // then convert that into the final I420 result.
     switch (format.value()) {
-      case ImageBitmapFormat::YUV422P:
+      case ImagePixelFormat::I422:
+      case ImagePixelFormat::I422A:
         rv = MapRv(libyuv::I422Scale(
             srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
             data->mCbCrStride, imageSize.width, imageSize.height, tempBufY,
@@ -471,7 +473,8 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
             tempBufV, tempBufCbCrSize.width, aDestY, aDestStrideY, aDestU,
             aDestStrideU, aDestV, aDestStrideV, aDestSize.width,
             aDestSize.height));
-      case ImageBitmapFormat::YUV444P:
+      case ImagePixelFormat::I444:
+      case ImagePixelFormat::I444A:
         rv = MapRv(libyuv::I444Scale(
             srcY, data->mYStride, srcCb, data->mCbCrStride, srcCr,
             data->mCbCrStride, imageSize.width, imageSize.height, tempBufY,
@@ -486,7 +489,7 @@ nsresult ConvertToI420(Image* aImage, uint8_t* aDestY, int aDestStrideY,
             tempBufV, tempBufCbCrSize.width, aDestY, aDestStrideY, aDestU,
             aDestStrideU, aDestV, aDestStrideV, aDestSize.width,
             aDestSize.height));
-      case ImageBitmapFormat::YUV420SP_NV12:
+      case ImagePixelFormat::NV12:
         rv = MapRv(libyuv::NV12Scale(
             srcY, data->mYStride, srcCb, data->mCbCrStride, imageSize.width,
             imageSize.height, tempBufY, tempBufSize.width, tempBufU,
@@ -558,14 +561,9 @@ nsresult ConvertToNV12(layers::Image* aImage, uint8_t* aDestY, int aDestStrideY,
   }
 
   if (const PlanarYCbCrData* data = GetPlanarYCbCrData(aImage)) {
-    const ImageUtils imageUtils(aImage);
-    Maybe<dom::ImageBitmapFormat> format = imageUtils.GetFormat();
-    if (format.isNothing()) {
-      MOZ_ASSERT_UNREACHABLE("YUV format conversion not implemented");
-      return NS_ERROR_NOT_IMPLEMENTED;
-    }
-
-    if (format.value() != ImageBitmapFormat::YUV420P) {
+    Maybe<ImagePixelFormat> format = ImageToPixelFormat(aImage);
+    if (format != Some(ImagePixelFormat::I420) &&
+        format != Some(ImagePixelFormat::I420A)) {
       NS_WARNING("ConvertToNV12: Convert YUV data in I420 only");
       return NS_ERROR_NOT_IMPLEMENTED;
     }
