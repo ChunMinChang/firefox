@@ -100,6 +100,12 @@ UNIFIED_SOURCES += [
     "YUVBufferGenerator.cpp",
 ]
 
+# Not in UNIFIED_SOURCES: on macOS it includes MacIOSurface.h, which pulls in
+# CoreVideo, see the MOZ_APPLEMEDIA block.
+SOURCES += [
+    "TestImagePixelFormat.cpp",
+]
+
 if CONFIG["MOZ_WEBRTC"]:
     LOCAL_INCLUDES += [
         "/dom/media/webrtc/libwebrtcglue",
