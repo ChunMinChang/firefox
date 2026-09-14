@@ -12,6 +12,7 @@
 #include "PlatformEncoderModule.h"
 #include "RemoteAudioDecoder.h"
 #include "RemoteCDMProxy.h"
+#include "RemoteImageHolder.h"
 #include "RemoteMediaDataDecoder.h"
 #include "RemoteMediaDataEncoder.h"
 #include "RemoteVideoDecoder.h"
@@ -961,7 +962,8 @@ TrackSupportSet RemoteMediaManagerChild::GetTrackSupport(
 }
 
 RemoteMediaManagerChild::RemoteMediaManagerChild(RemoteMediaIn aLocation)
-    : mLocation(aLocation) {
+    : mLocation(aLocation),
+      mReadbackRecycleBin(new layers::BufferRecycleBin()) {
   MOZ_ASSERT(mLocation == RemoteMediaIn::GpuProcess ||
              mLocation == RemoteMediaIn::RddProcess ||
              mLocation == RemoteMediaIn::UtilityProcess_Generic ||
@@ -1079,24 +1081,35 @@ void DeleteSurfaceDescriptorUserData(void* aClosure) {
   delete sd;
 }
 
-already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
-    const SurfaceDescriptorGPUVideo& aSD) {
+void RemoteMediaManagerChild::ReadbackSync(const SurfaceDescriptorGPUVideo& aSD,
+                                           bool aRgbOnly,
+                                           SurfaceDescriptor* aResult) {
   // We can't use NS_DispatchAndSpinEventLoopUntilComplete here since that will
   // spin the event loop while it waits. This function can be called from JS and
   // we don't want that to happen.
   nsCOMPtr<nsISerialEventTarget> managerThread = GetManagerThread();
   if (!managerThread) {
-    return nullptr;
+    return;
   }
 
-  SurfaceDescriptor sd;
   RefPtr<Runnable> task =
-      NS_NewRunnableFunction("RemoteMediaManagerChild::Readback", [&]() {
-        if (CanSend()) {
-          SendReadback(aSD, &sd);
+      NS_NewRunnableFunction("RemoteMediaManagerChild::ReadbackSync", [&]() {
+        if (!CanSend()) {
+          return;
+        }
+        if (aRgbOnly) {
+          SendReadback(aSD, aResult);
+        } else {
+          SendReadbackYCbCr(aSD, aResult);
         }
       });
   SyncRunnable::DispatchToThread(managerThread, task);
+}
+
+already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
+    const SurfaceDescriptorGPUVideo& aSD) {
+  SurfaceDescriptor sd;
+  ReadbackSync(aSD, /* aRgbOnly */ true, &sd);
 
   if (sd.type() != SurfaceDescriptor::TSurfaceDescriptorBuffer) {
     LOGE("Unexpected SurfaceDescriptor type in Readback");
@@ -1121,6 +1134,28 @@ already_AddRefed<SourceSurface> RemoteMediaManagerChild::Readback(
                       DeleteSurfaceDescriptorUserData);
 
   return source.forget();
+}
+
+already_AddRefed<Image> RemoteMediaManagerChild::ReadbackYCbCr(
+    const SurfaceDescriptorGPUVideo& aSD) {
+  SurfaceDescriptor sd;
+  ReadbackSync(aSD, /* aRgbOnly */ false, &sd);
+
+  // null_t: the image is gone or has no planes.
+  if (sd.type() != SurfaceDescriptor::TSurfaceDescriptorBuffer) {
+    return nullptr;
+  }
+  if (sd.get_SurfaceDescriptorBuffer().data().type() != MemoryOrShmem::TShmem) {
+    LOGE("Unexpected SurfaceDescriptorBuffer data type in ReadbackYCbCr");
+    return nullptr;
+  }
+
+  // TransferToImage copies the planes, so the shmem can go.
+  Shmem shmem = sd.get_SurfaceDescriptorBuffer().data().get_Shmem();
+  RemoteImageHolder holder(std::move(sd));
+  RefPtr<Image> image = holder.TransferToImage(mReadbackRecycleBin);
+  DeallocShmem(shmem);
+  return image.forget();
 }
 
 already_AddRefed<Image> RemoteMediaManagerChild::TransferToImage(

@@ -71,6 +71,9 @@ parent:
 
   sync Readback(SurfaceDescriptorGPUVideo sd) returns (SurfaceDescriptor aResult);
 
+  // The planes of a planar YCbCr image, unconverted; null_t otherwise.
+  sync ReadbackYCbCr(SurfaceDescriptorGPUVideo sd) returns (SurfaceDescriptor aResult);
+
   async DeallocateSurfaceDescriptorGPUVideo(SurfaceDescriptorGPUVideo sd);
 
   async OnSetCurrent(SurfaceDescriptorGPUVideo sd);

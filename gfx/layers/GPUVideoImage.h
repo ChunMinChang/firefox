@@ -26,6 +26,9 @@ class IGPUVideoSurfaceManager {
 
   virtual already_AddRefed<gfx::SourceSurface> Readback(
       const SurfaceDescriptorGPUVideo& aSD) = 0;
+  // The planes behind aSD as a new PlanarYCbCrImage, or null.
+  virtual already_AddRefed<Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD) = 0;
   virtual already_AddRefed<Image> TransferToImage(
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
@@ -108,6 +111,13 @@ class GPUVideoImage final : public Image {
       return nullptr;
     }
     return mManager->Readback(mSD);
+  }
+
+  already_AddRefed<Image> ReadbackYCbCr() {
+    if (!mManager) {
+      return nullptr;
+    }
+    return mManager->ReadbackYCbCr(mSD);
   }
 
   TextureClient* GetTextureClient(KnowsCompositor* aKnowsCompositor) override {
