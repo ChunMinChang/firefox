@@ -111,7 +111,8 @@ class RemoteMediaManagerChild final
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
       gfx::ColorSpace2 aColorPrimaries, gfx::TransferFunction aTransferFunction,
-      gfx::ColorRange aColorRange) override;
+      gfx::ColorRange aColorRange,
+      const Maybe<gfx::ChromaSubsampling>& aChromaSubsampling) override;
   void DeallocateSurfaceDescriptor(
       const SurfaceDescriptorGPUVideo& aSD) override;
 

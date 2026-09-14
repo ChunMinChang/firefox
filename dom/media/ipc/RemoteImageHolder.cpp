@@ -28,7 +28,8 @@ RemoteImageHolder::RemoteImageHolder(
     layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,
     const gfx::ColorDepth& aColorDepth, const layers::SurfaceDescriptor& aSD,
     gfx::YUVColorSpace aYUVColorSpace, gfx::ColorSpace2 aColorPrimaries,
-    gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange)
+    gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange,
+    const Maybe<gfx::ChromaSubsampling>& aChromaSubsampling)
     : mSource(aSource),
       mSize(aSize),
       mColorDepth(aColorDepth),
@@ -37,7 +38,8 @@ RemoteImageHolder::RemoteImageHolder(
       mYUVColorSpace(aYUVColorSpace),
       mColorPrimaries(aColorPrimaries),
       mTransferFunction(aTransferFunction),
-      mColorRange(aColorRange) {}
+      mColorRange(aColorRange),
+      mChromaSubsampling(aChromaSubsampling) {}
 
 RemoteImageHolder::RemoteImageHolder(RemoteImageHolder&& aOther)
     : mSource(aOther.mSource),
@@ -48,7 +50,8 @@ RemoteImageHolder::RemoteImageHolder(RemoteImageHolder&& aOther)
       mYUVColorSpace(aOther.mYUVColorSpace),
       mColorPrimaries(aOther.mColorPrimaries),
       mTransferFunction(aOther.mTransferFunction),
-      mColorRange(aOther.mColorRange) {
+      mColorRange(aOther.mColorRange),
+      mChromaSubsampling(aOther.mChromaSubsampling) {
   aOther.mSD = Nothing();
 }
 
@@ -56,10 +59,12 @@ nsCString RemoteImageHolder::ToString() const {
   nsCString rv;
   rv.AppendFmt(
       "RemoteImageHolder {{ size={}x{}, depth={}, range={}, matrix={}, "
-      "primaries={}, transfer={} }}",
+      "primaries={}, transfer={}, subsampling={} }}",
       mSize.Width(), mSize.Height(), mozilla::ToString(mColorDepth),
       mozilla::ToString(mColorRange), mozilla::ToString(mYUVColorSpace),
-      mozilla::ToString(mColorPrimaries), mozilla::ToString(mTransferFunction));
+      mozilla::ToString(mColorPrimaries), mozilla::ToString(mTransferFunction),
+      mChromaSubsampling ? mozilla::ToString(*mChromaSubsampling)
+                         : std::string("none"));
   return rv;
 }
 
@@ -203,7 +208,7 @@ already_AddRefed<layers::Image> RemoteImageHolder::TransferToImage(
   } else if (mManager) {
     image = mManager->TransferToImage(*mSD, mSize, mColorDepth, mYUVColorSpace,
                                       mColorPrimaries, mTransferFunction,
-                                      mColorRange);
+                                      mColorRange, mChromaSubsampling);
   }
   mSD = Nothing();
   mManager = nullptr;
@@ -236,6 +241,7 @@ RemoteImageHolder::~RemoteImageHolder() {
   WriteParam(aWriter, aParam.mColorPrimaries);
   WriteParam(aWriter, aParam.mTransferFunction);
   WriteParam(aWriter, aParam.mColorRange);
+  WriteParam(aWriter, aParam.mChromaSubsampling);
   // Empty this holder.
   aParam.mSD = mozilla::Nothing();
   aParam.mManager = nullptr;
@@ -250,7 +256,8 @@ RemoteImageHolder::~RemoteImageHolder() {
       !ReadParam(aReader, &aResult->mYUVColorSpace) ||
       !ReadParam(aReader, &aResult->mColorPrimaries) ||
       !ReadParam(aReader, &aResult->mTransferFunction) ||
-      !ReadParam(aReader, &aResult->mColorRange)) {
+      !ReadParam(aReader, &aResult->mColorRange) ||
+      !ReadParam(aReader, &aResult->mChromaSubsampling)) {
     return false;
   }
 

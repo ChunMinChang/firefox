@@ -1127,16 +1127,17 @@ already_AddRefed<Image> RemoteMediaManagerChild::TransferToImage(
     const SurfaceDescriptorGPUVideo& aSD, const IntSize& aSize,
     const ColorDepth& aColorDepth, YUVColorSpace aYUVColorSpace,
     ColorSpace2 aColorPrimaries, TransferFunction aTransferFunction,
-    ColorRange aColorRange) {
+    ColorRange aColorRange,
+    const Maybe<ChromaSubsampling>& aChromaSubsampling) {
   // The Image here creates a TextureData object that takes ownership
   // of the SurfaceDescriptor, and is responsible for making sure that
   // it gets deallocated.
   SurfaceDescriptorGPUVideo sd(aSD);
   sd.get_SurfaceDescriptorRemoteDecoder().source() =
       Some(GetVideoBridgeSourceFromRemoteMediaIn(mLocation));
-  return MakeAndAddRef<GPUVideoImage>(this, sd, aSize, aColorDepth,
-                                      aYUVColorSpace, aColorPrimaries,
-                                      aTransferFunction, aColorRange);
+  return MakeAndAddRef<GPUVideoImage>(
+      this, sd, aSize, aColorDepth, aYUVColorSpace, aColorPrimaries,
+      aTransferFunction, aColorRange, aChromaSubsampling);
 }
 
 void RemoteMediaManagerChild::DeallocateSurfaceDescriptor(

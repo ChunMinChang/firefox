@@ -30,7 +30,8 @@ class IGPUVideoSurfaceManager {
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
       gfx::ColorSpace2 aColorPrimaries, gfx::TransferFunction aTransferFunction,
-      gfx::ColorRange aColorRange) = 0;
+      gfx::ColorRange aColorRange,
+      const Maybe<gfx::ChromaSubsampling>& aChromaSubsampling) = 0;
   virtual void DeallocateSurfaceDescriptor(
       const SurfaceDescriptorGPUVideo& aSD) = 0;
   virtual void OnSetCurrent(const SurfaceDescriptorGPUVideo& aSD) = 0;
@@ -47,7 +48,8 @@ class GPUVideoImage final : public Image {
                 gfx::YUVColorSpace aYUVColorSpace,
                 gfx::ColorSpace2 aColorPrimaries,
                 gfx::TransferFunction aTransferFunction,
-                gfx::ColorRange aColorRange)
+                gfx::ColorRange aColorRange,
+                const Maybe<gfx::ChromaSubsampling>& aChromaSubsampling)
       : Image(nullptr, ImageFormat::GPU_VIDEO),
         mSize(aSize),
         mColorDepth(aColorDepth),
@@ -56,7 +58,8 @@ class GPUVideoImage final : public Image {
         mManager(aManager),
         mSD(aSD),
         mTransferFunction(aTransferFunction),
-        mColorRange(aColorRange) {
+        mColorRange(aColorRange),
+        mChromaSubsampling(aChromaSubsampling) {
     // Create the TextureClient immediately since the GPUVideoTextureData
     // is responsible for deallocating the SurfaceDescriptor.
     //
@@ -82,6 +85,10 @@ class GPUVideoImage final : public Image {
     return mTransferFunction;
   }
   gfx::ColorRange GetColorRange() const { return mColorRange; }
+  // Set when the owning process can read the image back plane by plane.
+  const Maybe<gfx::ChromaSubsampling>& GetChromaSubsampling() const {
+    return mChromaSubsampling;
+  }
 
   Maybe<SurfaceDescriptor> GetDesc() override {
     return Some(SurfaceDescriptor(mSD));
@@ -119,6 +126,7 @@ class GPUVideoImage final : public Image {
   RefPtr<TextureClient> mTextureClient;
   gfx::TransferFunction mTransferFunction;
   gfx::ColorRange mColorRange;
+  Maybe<gfx::ChromaSubsampling> mChromaSubsampling;
 };
 
 }  // namespace layers

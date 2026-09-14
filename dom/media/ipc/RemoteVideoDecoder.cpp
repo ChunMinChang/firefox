@@ -224,6 +224,15 @@ IPCResult RemoteVideoDecoderParent::RecvConstruct(
   return IPC_OK();
 }
 
+// Only packed planes read back as a YCbCrDescriptor, which has no skips.
+static Maybe<ChromaSubsampling> ReadbackChromaSubsampling(
+    const PlanarYCbCrData* aData) {
+  if (!aData || aData->mYSkip || aData->mCbSkip || aData->mCrSkip) {
+    return Nothing();
+  }
+  return Some(aData->mChromaSubsampling);
+}
+
 MediaResult RemoteVideoDecoderParent::ProcessDecodedData(
     MediaDataDecoder::DecodedData&& aData, DecodedOutputIPDL& aDecodedData) {
   MOZ_ASSERT(OnManagerThread());
@@ -342,7 +351,8 @@ MediaResult RemoteVideoDecoderParent::ProcessDecodedData(
             : (XRE_IsRDDProcess() ? VideoBridgeSource::RddProcess
                                   : VideoBridgeSource::MFMediaEngineCDMProcess),
         size, video->mImage->GetColorDepth(), sd, yuvColorSpace, colorPrimaries,
-        transferFunction, colorRange);
+        transferFunction, colorRange,
+        needStorage ? ReadbackChromaSubsampling(imageData) : Nothing());
     MOZ_LOG_FMT(
         gRemoteDecodeLog, LogLevel::Verbose,
         "Remote video ts={} send via {}: {}", video->mTime.ToMicroseconds(),

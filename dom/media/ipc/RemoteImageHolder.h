@@ -29,7 +29,8 @@ class RemoteImageHolder final {
       layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, const layers::SurfaceDescriptor& aSD,
       gfx::YUVColorSpace aYUVColorSpace, gfx::ColorSpace2 aColorPrimaries,
-      gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange);
+      gfx::TransferFunction aTransferFunction, gfx::ColorRange aColorRange,
+      const Maybe<gfx::ChromaSubsampling>& aChromaSubsampling);
   RemoteImageHolder(RemoteImageHolder&& aOther);
   // Ensure we never copy this object.
   RemoteImageHolder(const RemoteImageHolder& aOther) = delete;
@@ -56,6 +57,8 @@ class RemoteImageHolder final {
   gfx::ColorSpace2 mColorPrimaries = {};
   gfx::TransferFunction mTransferFunction = {};
   gfx::ColorRange mColorRange = {};
+  // Set when the remote image's planes can be read back as they are.
+  Maybe<gfx::ChromaSubsampling> mChromaSubsampling;
 };
 
 }  // namespace mozilla
