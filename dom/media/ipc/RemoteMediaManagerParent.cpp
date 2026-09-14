@@ -354,7 +354,7 @@ already_AddRefed<Image> RemoteMediaManagerParent::TransferToImage(
     const SurfaceDescriptorGPUVideo& aSD, const IntSize& aSize,
     const ColorDepth& aColorDepth, YUVColorSpace aYUVColorSpace,
     ColorSpace2 aColorPrimaries, TransferFunction aTransferFunction,
-    ColorRange aColorRange) {
+    ColorRange aColorRange, const Maybe<ChromaSubsampling>&) {
   MOZ_ASSERT(OnManagerThread());
   const SurfaceDescriptorRemoteDecoder& sd = aSD;
   const auto i = mImageMap.find(sd.handle());

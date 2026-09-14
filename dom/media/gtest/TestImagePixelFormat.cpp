@@ -39,7 +39,7 @@ static RefPtr<GPUVideoImage> MakeRemoteImage(ColorDepth aDepth) {
   SurfaceDescriptorGPUVideo sd{SurfaceDescriptorRemoteDecoder()};
   return MakeRefPtr<GPUVideoImage>(
       manager, sd, kSize, aDepth, YUVColorSpace::BT709, ColorSpace2::BT709,
-      TransferFunction::BT709, ColorRange::LIMITED);
+      TransferFunction::BT709, ColorRange::LIMITED, Nothing());
 }
 
 TEST(TestImagePixelFormat, NullImage)

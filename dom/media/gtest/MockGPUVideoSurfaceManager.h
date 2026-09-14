@@ -19,12 +19,11 @@ class MockGPUVideoSurfaceManager : public IGPUVideoSurfaceManager {
       const SurfaceDescriptorGPUVideo&) override {
     return nullptr;
   }
-  already_AddRefed<Image> TransferToImage(const SurfaceDescriptorGPUVideo&,
-                                          const gfx::IntSize&,
-                                          const gfx::ColorDepth&,
-                                          gfx::YUVColorSpace, gfx::ColorSpace2,
-                                          gfx::TransferFunction,
-                                          gfx::ColorRange) override {
+  already_AddRefed<Image> TransferToImage(
+      const SurfaceDescriptorGPUVideo&, const gfx::IntSize&,
+      const gfx::ColorDepth&, gfx::YUVColorSpace, gfx::ColorSpace2,
+      gfx::TransferFunction, gfx::ColorRange,
+      const Maybe<gfx::ChromaSubsampling>&) override {
     return nullptr;
   }
   void DeallocateSurfaceDescriptor(const SurfaceDescriptorGPUVideo&) override {}
