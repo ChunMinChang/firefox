@@ -257,6 +257,14 @@ class VideoFrame final : public nsISupports,
     const RefPtr<layers::Image> mImage;
     // Nothing() if mImage is not in VideoPixelFormat
     const Maybe<Format> mFormat;
+
+   private:
+    // mImage, or for a remote frame the planes fetched on first use; null
+    // when that fetch failed.
+    layers::Image* PlaneSource() const;
+
+    mutable RefPtr<layers::Image> mReadbackImage;
+    mutable bool mReadbackAttempted = false;
   };
 
   nsCOMPtr<nsIGlobalObject> mParent;

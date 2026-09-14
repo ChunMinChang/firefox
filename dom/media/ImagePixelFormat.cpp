@@ -4,6 +4,7 @@
 
 #include "ImagePixelFormat.h"
 
+#include "GPUVideoImage.h"
 #include "ImageContainer.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/gfx/Types.h"
@@ -141,9 +142,18 @@ Maybe<ImagePixelFormat> ImageToPixelFormat(Image* aImage) {
       const PlanarYCbCrData* data = GetPlanarYCbCrData(aImage);
       return data ? PlanarYCbCrDataToPixelFormat(*data) : Nothing();
     }
-    case ImageFormat::GPU_VIDEO:
-      // This process only reads a remote image back as RGB.
+    case ImageFormat::GPU_VIDEO: {
+      // Without a transported planar layout a remote image reads back as RGB.
+      layers::GPUVideoImage* image = aImage->AsGPUVideoImage();
+      if (const Maybe<ChromaSubsampling>& subsampling =
+              image->GetChromaSubsampling()) {
+        if (Maybe<ImagePixelFormat> format = PlanarYCbCrToPixelFormat(
+                *subsampling, image->GetColorDepth(), /* aHasAlpha */ false)) {
+          return format;
+        }
+      }
       return Some(ImagePixelFormat::BGRX);
+    }
     case ImageFormat::MOZ2D_SURFACE: {
       RefPtr<SourceSurface> surface = aImage->GetAsSourceSurface();
       return surface ? SurfaceFormatToPixelFormat(surface->GetFormat())
