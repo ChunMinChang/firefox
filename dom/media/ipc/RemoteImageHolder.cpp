@@ -21,8 +21,9 @@ using namespace gfx;
 using namespace layers;
 
 RemoteImageHolder::RemoteImageHolder() = default;
-RemoteImageHolder::RemoteImageHolder(layers::SurfaceDescriptor&& aSD)
-    : mSD(Some(std::move(aSD))) {}
+RemoteImageHolder::RemoteImageHolder(layers::SurfaceDescriptor&& aSD,
+                                     gfx::ColorSpace2 aColorPrimaries)
+    : mSD(Some(std::move(aSD))), mColorPrimaries(aColorPrimaries) {}
 RemoteImageHolder::RemoteImageHolder(
     layers::IGPUVideoSurfaceManager* aManager,
     layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,

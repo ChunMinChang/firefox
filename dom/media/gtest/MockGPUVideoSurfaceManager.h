@@ -19,6 +19,10 @@ class MockGPUVideoSurfaceManager : public IGPUVideoSurfaceManager {
       const SurfaceDescriptorGPUVideo&) override {
     return nullptr;
   }
+  already_AddRefed<Image> ReadbackYCbCr(const SurfaceDescriptorGPUVideo&,
+                                        gfx::ColorSpace2) override {
+    return nullptr;
+  }
   already_AddRefed<Image> TransferToImage(
       const SurfaceDescriptorGPUVideo&, const gfx::IntSize&,
       const gfx::ColorDepth&, gfx::YUVColorSpace, gfx::ColorSpace2,

@@ -107,6 +107,9 @@ class RemoteMediaManagerChild final
   // internally and will be ignored if the IPDL actor has been destroyed.
   already_AddRefed<gfx::SourceSurface> Readback(
       const SurfaceDescriptorGPUVideo& aSD) override;
+  already_AddRefed<layers::Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD,
+      gfx::ColorSpace2 aColorPrimaries) override;
   already_AddRefed<layers::Image> TransferToImage(
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
@@ -163,6 +166,10 @@ class RemoteMediaManagerChild final
  private:
   explicit RemoteMediaManagerChild(RemoteMediaIn aLocation);
   ~RemoteMediaManagerChild() = default;
+
+  // Waits for the reply; aResult is untouched when the actor cannot send.
+  void ReadbackSync(const SurfaceDescriptorGPUVideo& aSD, bool aRgbOnly,
+                    SurfaceDescriptor* aResult);
   static RefPtr<PlatformDecoderModule::CreateDecoderPromise> Construct(
       RefPtr<RemoteDecoderChild>&& aChild,
       CreateDecoderParamsForAsync&& aParams, RemoteMediaIn aLocation);
@@ -175,6 +182,7 @@ class RemoteMediaManagerChild final
 
   // The location for decoding, Rdd or Gpu process.
   const RemoteMediaIn mLocation;
+  const RefPtr<layers::BufferRecycleBin> mReadbackRecycleBin;
 };
 
 }  // namespace mozilla

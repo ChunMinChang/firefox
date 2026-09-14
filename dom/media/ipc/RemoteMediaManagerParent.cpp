@@ -297,17 +297,35 @@ void RemoteMediaManagerParent::Open(
 
 mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadback(
     const SurfaceDescriptorGPUVideo& aSD, SurfaceDescriptor* aResult) {
+  return BuildReadbackDescriptor(aSD, /* aRgbOnly */ true, aResult);
+}
+
+mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadbackYCbCr(
+    const SurfaceDescriptorGPUVideo& aSD, SurfaceDescriptor* aResult) {
+  return BuildReadbackDescriptor(aSD, /* aRgbOnly */ false, aResult);
+}
+
+mozilla::ipc::IPCResult RemoteMediaManagerParent::BuildReadbackDescriptor(
+    const SurfaceDescriptorGPUVideo& aSD, bool aRgbOnly,
+    SurfaceDescriptor* aResult) {
+  *aResult = null_t();
   const SurfaceDescriptorRemoteDecoder& sd = aSD;
-  RefPtr<Image> image = mImageMap[sd.handle()];
-  if (!image) {
-    *aResult = null_t();
+  const auto i = mImageMap.find(sd.handle());
+  if (i == mImageMap.end() || !i->second) {
+    return IPC_OK();
+  }
+  RefPtr<Image> image = i->second;
+  // Any other image would come back converted to RGB.
+  if (!aRgbOnly && !image->AsPlanarYCbCrImage()) {
     return IPC_OK();
   }
 
   // Read directly into the shmem to avoid extra copies, if possible.
   SurfaceDescriptorBuffer sdb;
   nsresult rv = image->BuildSurfaceDescriptorBuffer(
-      sdb, Image::BuildSdbFlags::RgbOnly, [&](uint32_t aBufferSize) {
+      sdb,
+      aRgbOnly ? Image::BuildSdbFlags::RgbOnly : Image::BuildSdbFlags::Default,
+      [&](uint32_t aBufferSize) {
         Shmem buffer;
         if (!AllocShmem(aBufferSize, &buffer)) {
           return MemoryOrShmem();
@@ -315,7 +333,8 @@ mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadback(
         return MemoryOrShmem(std::move(buffer));
       });
 
-  if (NS_SUCCEEDED(rv)) {
+  if (NS_SUCCEEDED(rv) &&
+      (aRgbOnly || sdb.desc().type() == BufferDescriptor::TYCbCrDescriptor)) {
     *aResult = std::move(sdb);
     return IPC_OK();
   }
@@ -323,7 +342,6 @@ mozilla::ipc::IPCResult RemoteMediaManagerParent::RecvReadback(
   if (sdb.data().type() == MemoryOrShmem::TShmem) {
     DeallocShmem(sdb.data().get_Shmem());
   }
-  *aResult = null_t();
   return IPC_OK();
 }
 

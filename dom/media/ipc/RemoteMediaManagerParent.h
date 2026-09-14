@@ -40,6 +40,12 @@ class RemoteMediaManagerParent final : public PRemoteMediaManagerParent,
     MOZ_ASSERT_UNREACHABLE("Not usable from the parent");
     return nullptr;
   }
+  already_AddRefed<layers::Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD,
+      gfx::ColorSpace2 aColorPrimaries) override {
+    MOZ_ASSERT_UNREACHABLE("Not usable from the parent");
+    return nullptr;
+  }
   already_AddRefed<layers::Image> TransferToImage(
       const SurfaceDescriptorGPUVideo& aSD, const gfx::IntSize& aSize,
       const gfx::ColorDepth& aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
@@ -86,6 +92,8 @@ class RemoteMediaManagerParent final : public PRemoteMediaManagerParent,
 
   mozilla::ipc::IPCResult RecvReadback(const SurfaceDescriptorGPUVideo& aSD,
                                        SurfaceDescriptor* aResult);
+  mozilla::ipc::IPCResult RecvReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo& aSD, SurfaceDescriptor* aResult);
   mozilla::ipc::IPCResult RecvDeallocateSurfaceDescriptorGPUVideo(
       const SurfaceDescriptorGPUVideo& aSD);
   mozilla::ipc::IPCResult RecvOnSetCurrent(
@@ -99,6 +107,12 @@ class RemoteMediaManagerParent final : public PRemoteMediaManagerParent,
   ~RemoteMediaManagerParent();
 
   void Open(Endpoint<PRemoteMediaManagerParent>&& aEndpoint);
+
+  // Reads the stored image back as RGB or as its planes; null_t when it is
+  // gone or has no planes.
+  mozilla::ipc::IPCResult BuildReadbackDescriptor(
+      const SurfaceDescriptorGPUVideo& aSD, bool aRgbOnly,
+      SurfaceDescriptor* aResult);
 
   std::map<uint64_t, RefPtr<layers::Image>> mImageMap;
   std::map<uint64_t, RefPtr<layers::TextureClient>> mTextureMap;

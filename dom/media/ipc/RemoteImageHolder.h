@@ -23,7 +23,10 @@ class RemoteImageHolder final {
 
  public:
   RemoteImageHolder();
-  explicit RemoteImageHolder(layers::SurfaceDescriptor&& aSD);
+  // aColorPrimaries is used for a YCbCr buffer, whose descriptor has none.
+  explicit RemoteImageHolder(
+      layers::SurfaceDescriptor&& aSD,
+      gfx::ColorSpace2 aColorPrimaries = gfx::ColorSpace2::UNKNOWN);
   RemoteImageHolder(
       layers::IGPUVideoSurfaceManager* aManager,
       layers::VideoBridgeSource aSource, const gfx::IntSize& aSize,

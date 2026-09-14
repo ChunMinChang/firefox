@@ -193,6 +193,28 @@ TEST(TestRemoteImageHolder, AcceptsValidShmemDescriptor)
   EXPECT_EQ(data->mColorRange, ColorRange::LIMITED);
 }
 
+TEST(TestRemoteImageHolder, AppliesGivenPrimariesToShmemDescriptor)
+{
+  auto shmemBuilder = Shmem::Builder(128);
+  ASSERT_TRUE(shmemBuilder);
+  auto [msg, shmem] = shmemBuilder.Build(2, false, 0);
+  memset(shmem.get<uint8_t>(), 0, 128);
+
+  BufferDescriptor bufferDesc(MakeValidDescriptor());
+  MemoryOrShmem memOrShmem(shmem);
+  SurfaceDescriptorBuffer sdBuffer(bufferDesc, memOrShmem);
+  SurfaceDescriptor sd(sdBuffer);
+  RemoteImageHolder holder(std::move(sd), ColorSpace2::BT2020);
+  RefPtr<BufferRecycleBin> recycleBin = new BufferRecycleBin();
+  RefPtr<layers::Image> image = holder.TransferToImage(recycleBin);
+
+  ASSERT_TRUE(image);
+  ASSERT_TRUE(image->AsPlanarYCbCrImage());
+  const PlanarYCbCrData* data = image->AsPlanarYCbCrImage()->GetData();
+  ASSERT_TRUE(data);
+  EXPECT_EQ(data->mColorPrimaries, ColorSpace2::BT2020);
+}
+
 TEST(TestRemoteImageHolder, PreservesShmemHDRMetadata)
 {
   auto shmemBuilder = Shmem::Builder(128);
