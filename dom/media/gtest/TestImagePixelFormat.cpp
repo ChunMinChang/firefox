@@ -34,12 +34,13 @@ static RefPtr<SourceSurfaceImage> MakeSurfaceImage(SurfaceFormat aFormat) {
   return MakeRefPtr<SourceSurfaceImage>(kSize, surface);
 }
 
-static RefPtr<GPUVideoImage> MakeRemoteImage(ColorDepth aDepth) {
+static RefPtr<GPUVideoImage> MakeRemoteImage(
+    ColorDepth aDepth, const Maybe<ChromaSubsampling>& aSubsampling) {
   RefPtr<MockGPUVideoSurfaceManager> manager = new MockGPUVideoSurfaceManager();
   SurfaceDescriptorGPUVideo sd{SurfaceDescriptorRemoteDecoder()};
   return MakeRefPtr<GPUVideoImage>(
       manager, sd, kSize, aDepth, YUVColorSpace::BT709, ColorSpace2::BT709,
-      TransferFunction::BT709, ColorRange::LIMITED, Nothing());
+      TransferFunction::BT709, ColorRange::LIMITED, aSubsampling);
 }
 
 TEST(TestImagePixelFormat, NullImage)
@@ -123,11 +124,21 @@ TEST(TestImagePixelFormat, SurfaceImages)
 
 TEST(TestImagePixelFormat, RemoteImages)
 {
-  RefPtr<GPUVideoImage> image = MakeRemoteImage(ColorDepth::COLOR_8);
-  EXPECT_EQ(ImageToPixelFormat(image), Some(ImagePixelFormat::BGRX));
+  RefPtr<GPUVideoImage> planar = MakeRemoteImage(
+      ColorDepth::COLOR_8, Some(ChromaSubsampling::HALF_WIDTH_AND_HEIGHT));
+  EXPECT_EQ(ImageToPixelFormat(planar), Some(ImagePixelFormat::I420));
 
-  RefPtr<GPUVideoImage> image10 = MakeRemoteImage(ColorDepth::COLOR_10);
-  EXPECT_EQ(ImageToPixelFormat(image10), Some(ImagePixelFormat::BGRX));
+  RefPtr<GPUVideoImage> planar10 =
+      MakeRemoteImage(ColorDepth::COLOR_10, Some(ChromaSubsampling::FULL));
+  EXPECT_EQ(ImageToPixelFormat(planar10), Some(ImagePixelFormat::I444P10));
+
+  RefPtr<GPUVideoImage> opaque =
+      MakeRemoteImage(ColorDepth::COLOR_8, Nothing());
+  EXPECT_EQ(ImageToPixelFormat(opaque), Some(ImagePixelFormat::BGRX));
+
+  RefPtr<GPUVideoImage> deep = MakeRemoteImage(
+      ColorDepth::COLOR_16, Some(ChromaSubsampling::HALF_WIDTH_AND_HEIGHT));
+  EXPECT_EQ(ImageToPixelFormat(deep), Some(ImagePixelFormat::BGRX));
 }
 
 #ifdef XP_MACOSX

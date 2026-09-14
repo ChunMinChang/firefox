@@ -9,6 +9,7 @@
 #include <limits>
 #include <utility>
 
+#include "GPUVideoImage.h"
 #include "ImageContainer.h"
 #include "ImageConversion.h"
 #include "MediaResult.h"
@@ -2739,8 +2740,23 @@ VideoFrame::Resource::Resource(const RefPtr<layers::Image>& aImage,
 }
 
 VideoFrame::Resource::Resource(const Resource& aOther)
-    : mImage(aOther.mImage), mFormat(aOther.mFormat) {
+    : mImage(aOther.mImage),
+      mFormat(aOther.mFormat),
+      mReadbackImage(aOther.mReadbackImage),
+      mReadbackAttempted(aOther.mReadbackAttempted) {
   MOZ_ASSERT(mImage);
+}
+
+layers::Image* VideoFrame::Resource::PlaneSource() const {
+  if (mImage->GetFormat() != ImageFormat::GPU_VIDEO) {
+    return mImage;
+  }
+  if (!mReadbackAttempted) {
+    mReadbackAttempted = true;
+    // Fetched once; a failed fetch is not retried.
+    mReadbackImage = mImage->AsGPUVideoImage()->ReadbackYCbCr();
+  }
+  return mReadbackImage;
 }
 
 Maybe<VideoPixelFormat> VideoFrame::Resource::TryPixelFormat() const {
@@ -2901,10 +2917,28 @@ bool VideoFrame::Resource::CopyPlaneInto(const Format::Plane& aPlane,
     return false;
   }
 
-  if (mImage->GetFormat() == ImageFormat::PLANAR_YCBCR) {
-    const auto* data = mImage->AsPlanarYCbCrImage()->GetData();
+  layers::Image* source = mImage;
+  // Remote planes keep the stream's crop origin; the frame's rects do not.
+  gfx::IntPoint originOffset;
+  if (mImage->GetFormat() == ImageFormat::GPU_VIDEO &&
+      IsYUVFormat(mFormat->PixelFormat())) {
+    source = PlaneSource();
+    if (!source) {
+      LOGE("Failed to read back the planes of a remote video frame");
+      return false;
+    }
+    originOffset = source->GetOrigin() - mImage->GetOrigin();
+  }
+
+  if (source->GetFormat() == ImageFormat::PLANAR_YCBCR) {
+    const auto* data = source->AsPlanarYCbCrImage()->GetData();
     const gfx::IntSize ySize = data->YDataSize();
     const gfx::IntSize cbcrSize = data->CbCrDataSize();
+    const gfx::IntRect yRect = aRect + originOffset;
+    const gfx::IntSize chromaSample = mFormat->SampleSize(Format::Plane::U);
+    const gfx::IntRect cbcrRect =
+        aRect + gfx::IntPoint(originOffset.x / chromaSample.width,
+                              originOffset.y / chromaSample.height);
     switch (aPlane) {
       case Format::Plane::Y:
         return CopyPlaneRegion(
@@ -2912,21 +2946,21 @@ bool VideoFrame::Resource::CopyPlaneInto(const Format::Plane& aPlane,
             Span<const uint8_t>(
                 data->mYChannel,
                 PlaneByteLengthOrZero(data->mYStride, ySize.height)),
-            data->mYStride, aRect, aPlaneDest, aDestinationStride);
+            data->mYStride, yRect, aPlaneDest, aDestinationStride);
       case Format::Plane::U:
         return CopyPlaneRegion(
             mFormat->SampleBytes(aPlane),
             Span<const uint8_t>(
                 data->mCbChannel,
                 PlaneByteLengthOrZero(data->mCbCrStride, cbcrSize.height)),
-            data->mCbCrStride, aRect, aPlaneDest, aDestinationStride);
+            data->mCbCrStride, cbcrRect, aPlaneDest, aDestinationStride);
       case Format::Plane::V:
         return CopyPlaneRegion(
             mFormat->SampleBytes(aPlane),
             Span<const uint8_t>(
                 data->mCrChannel,
                 PlaneByteLengthOrZero(data->mCbCrStride, cbcrSize.height)),
-            data->mCbCrStride, aRect, aPlaneDest, aDestinationStride);
+            data->mCbCrStride, cbcrRect, aPlaneDest, aDestinationStride);
       case Format::Plane::A:
         MOZ_ASSERT(mFormat->PixelFormat() == VideoPixelFormat::I420A);
         MOZ_ASSERT(data->mAlpha);
@@ -2935,13 +2969,13 @@ bool VideoFrame::Resource::CopyPlaneInto(const Format::Plane& aPlane,
             Span<const uint8_t>(
                 data->mAlpha->mChannel,
                 PlaneByteLengthOrZero(data->mYStride, ySize.height)),
-            data->mYStride, aRect, aPlaneDest, aDestinationStride);
+            data->mYStride, yRect, aPlaneDest, aDestinationStride);
     }
     MOZ_ASSERT_UNREACHABLE("invalid plane");
   }
 
-  if (mImage->GetFormat() == ImageFormat::NV_IMAGE) {
-    const auto* data = mImage->AsNVImage()->GetData();
+  if (source->GetFormat() == ImageFormat::NV_IMAGE) {
+    const auto* data = source->AsNVImage()->GetData();
     const gfx::IntSize ySize = data->YDataSize();
     const gfx::IntSize cbcrSize = data->CbCrDataSize();
     switch (aPlane) {

@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "2D.h"
+#include "GPUVideoImage.h"
 #include "ImageContainer.h"
 #include "Tools.h"
 #include "gtest/gtest.h"
@@ -394,5 +395,170 @@ TEST(VideoFrameTest, CopyToBGRAAlignedStride)
     }
   }
 
+  frame->Close();
+}
+
+static uint8_t UValue(int32_t aRow, int32_t aCol) {
+  return static_cast<uint8_t>(0x40 + aRow * 8 + aCol);
+}
+static uint8_t VValue(int32_t aRow, int32_t aCol) {
+  return static_cast<uint8_t>(0x80 + aRow * 8 + aCol);
+}
+
+// Hands a prepared planar image back as the planes of any remote frame.
+class ReadbackSurfaceManager final : public IGPUVideoSurfaceManager {
+ public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ReadbackSurfaceManager, override)
+
+  explicit ReadbackSurfaceManager(RefPtr<layers::Image> aPlanes)
+      : mPlanes(std::move(aPlanes)) {}
+
+  already_AddRefed<SourceSurface> Readback(
+      const SurfaceDescriptorGPUVideo&) override {
+    return nullptr;
+  }
+  already_AddRefed<layers::Image> ReadbackYCbCr(
+      const SurfaceDescriptorGPUVideo&, ColorSpace2 aColorPrimaries) override {
+    mReadbacks++;
+    mColorPrimaries = aColorPrimaries;
+    return do_AddRef(mPlanes);
+  }
+  already_AddRefed<layers::Image> TransferToImage(
+      const SurfaceDescriptorGPUVideo&, const IntSize&, const ColorDepth&,
+      YUVColorSpace, ColorSpace2, TransferFunction, ColorRange,
+      const Maybe<ChromaSubsampling>&) override {
+    return nullptr;
+  }
+  void DeallocateSurfaceDescriptor(const SurfaceDescriptorGPUVideo&) override {}
+  void OnSetCurrent(const SurfaceDescriptorGPUVideo&) override {}
+
+  uint32_t mReadbacks = 0;
+  ColorSpace2 mColorPrimaries = ColorSpace2::UNKNOWN;
+
+ private:
+  ~ReadbackSurfaceManager() = default;
+  RefPtr<layers::Image> mPlanes;
+};
+
+TEST(VideoFrameTest, CopyToRemotePlanarFrameWithCropOrigin)
+{
+  // 8x8 planes with the 4x4 picture at (2, 2), as a cropped stream produces.
+  const int32_t kCodedWidth = 8;
+  const int32_t kCodedHeight = 8;
+  const IntRect kPicture(2, 2, 4, 4);
+
+  nsTArray<uint8_t> buf;
+  buf.SetLength(kCodedWidth * kCodedHeight * 3 / 2);
+  uint8_t* yData = buf.Elements();
+  uint8_t* uData = yData + kCodedWidth * kCodedHeight;
+  uint8_t* vData = uData + (kCodedWidth / 2) * (kCodedHeight / 2);
+  for (int32_t row = 0; row < kCodedHeight; row++) {
+    for (int32_t col = 0; col < kCodedWidth; col++) {
+      yData[row * kCodedWidth + col] = YValue(row, col);
+    }
+  }
+  for (int32_t row = 0; row < kCodedHeight / 2; row++) {
+    for (int32_t col = 0; col < kCodedWidth / 2; col++) {
+      uData[row * (kCodedWidth / 2) + col] = UValue(row, col);
+      vData[row * (kCodedWidth / 2) + col] = VValue(row, col);
+    }
+  }
+
+  PlanarYCbCrData data;
+  data.mPictureRect = kPicture;
+  data.mYChannel = yData;
+  data.mYStride = kCodedWidth;
+  data.mCbChannel = uData;
+  data.mCrChannel = vData;
+  data.mCbCrStride = kCodedWidth / 2;
+  data.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
+  auto planes = MakeRefPtr<RecyclingPlanarYCbCrImage>(new BufferRecycleBin());
+  ASSERT_EQ(planes->CopyData(data), NS_OK);
+  ASSERT_EQ(planes->GetOrigin(), kPicture.TopLeft());
+
+  RefPtr<ReadbackSurfaceManager> manager = new ReadbackSurfaceManager(planes);
+  SurfaceDescriptorGPUVideo sd{SurfaceDescriptorRemoteDecoder()};
+  RefPtr<layers::Image> remote = MakeRefPtr<GPUVideoImage>(
+      manager, sd, kPicture.Size(), ColorDepth::COLOR_8, YUVColorSpace::BT709,
+      ColorSpace2::BT709, TransferFunction::BT709, ColorRange::LIMITED,
+      Some(ChromaSubsampling::HALF_WIDTH_AND_HEIGHT));
+
+  AutoJSAPI jsapi;
+  MOZ_ALWAYS_TRUE(jsapi.Init(xpc::PrivilegedJunkScope()));
+  JSContext* cx = jsapi.cx();
+  nsCOMPtr<nsIGlobalObject> global =
+      xpc::NativeGlobal(xpc::PrivilegedJunkScope());
+  ASSERT_NE(global, nullptr);
+
+  const IntSize codedSize = kPicture.Size();
+  const IntRect visibleRect(0, 0, kPicture.Width(), kPicture.Height());
+  VideoColorSpaceInternal colorSpace(false, VideoMatrixCoefficients::Bt709,
+                                     VideoColorPrimaries::Bt709,
+                                     VideoTransferCharacteristics::Bt709);
+  RefPtr<VideoFrame> frame = MakeRefPtr<VideoFrame>(
+      global.get(), remote, Some(VideoPixelFormat::I420), codedSize,
+      visibleRect, codedSize, Nothing(), int64_t(0), colorSpace);
+
+  RootedDictionary<VideoFrameCopyToOptions> options(cx);
+  ErrorResult rv;
+  uint32_t allocSize = frame->AllocationSize(options, rv);
+  ASSERT_FALSE(rv.Failed());
+  ASSERT_EQ(allocSize, uint32_t(kPicture.Width() * kPicture.Height() * 3 / 2));
+
+  auto copyTo = [&](VideoFrame* aFrame, uint8_t** aDest) {
+    JS::Rooted<JSObject*> arrayBuffer(cx, JS::NewArrayBuffer(cx, allocSize));
+    ASSERT_NE(arrayBuffer.get(), nullptr);
+    MaybeSharedArrayBufferOrMaybeSharedArrayBufferView bufferSource;
+    JS::Rooted<JS::Value> abVal(cx, JS::ObjectValue(*arrayBuffer));
+    ASSERT_TRUE(bufferSource.Init(cx, abVal));
+    RefPtr<Promise> promise = aFrame->CopyTo(bufferSource, options, rv);
+    ASSERT_FALSE(rv.Failed());
+    ASSERT_NE(promise, nullptr);
+    bool isShared = false;
+    size_t destLen = 0;
+    JS::GetArrayBufferLengthAndData(arrayBuffer, &destLen, &isShared, aDest);
+    ASSERT_GE(destLen, static_cast<size_t>(allocSize));
+  };
+
+  uint8_t* dest = nullptr;
+  copyTo(frame, &dest);
+  ASSERT_NE(dest, nullptr);
+
+  const int32_t w = kPicture.Width();
+  const int32_t h = kPicture.Height();
+  for (int32_t row = 0; row < h; row++) {
+    for (int32_t col = 0; col < w; col++) {
+      EXPECT_EQ(dest[row * w + col], YValue(kPicture.y + row, kPicture.x + col))
+          << "Y mismatch at row=" << row << " col=" << col;
+    }
+  }
+  const uint32_t uOffset = w * h;
+  const uint32_t vOffset = uOffset + (w / 2) * (h / 2);
+  for (int32_t row = 0; row < h / 2; row++) {
+    for (int32_t col = 0; col < w / 2; col++) {
+      EXPECT_EQ(dest[uOffset + row * (w / 2) + col],
+                UValue(kPicture.y / 2 + row, kPicture.x / 2 + col))
+          << "U mismatch at row=" << row << " col=" << col;
+      EXPECT_EQ(dest[vOffset + row * (w / 2) + col],
+                VValue(kPicture.y / 2 + row, kPicture.x / 2 + col))
+          << "V mismatch at row=" << row << " col=" << col;
+    }
+  }
+
+  // A second copy and a clone reuse the planes fetched by the first copy.
+  uint8_t* again = nullptr;
+  copyTo(frame, &again);
+  ASSERT_NE(again, nullptr);
+  EXPECT_EQ(memcmp(dest, again, allocSize), 0);
+  RefPtr<VideoFrame> clone = frame->Clone(rv);
+  ASSERT_FALSE(rv.Failed());
+  uint8_t* cloned = nullptr;
+  copyTo(clone, &cloned);
+  ASSERT_NE(cloned, nullptr);
+  EXPECT_EQ(memcmp(dest, cloned, allocSize), 0);
+  EXPECT_EQ(manager->mReadbacks, 1u);
+  EXPECT_EQ(manager->mColorPrimaries, ColorSpace2::BT709);
+
+  clone->Close();
   frame->Close();
 }
