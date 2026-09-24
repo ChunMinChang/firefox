@@ -369,14 +369,14 @@ void VideoSink::Redraw(const VideoInfo& aInfo) {
 
   RefPtr<Image> blank =
       mContainer->GetImageContainer()->CreatePlanarYCbCrImage();
-  mContainer->SetCurrentFrame(aInfo.mDisplay, blank, now,
-                              media::TimeUnit::Invalid(),
-                              media::TimeUnit::Invalid(), Nothing());
+  mContainer->SetCurrentFrame(
+      aInfo.mDisplay, blank, now, media::TimeUnit::Invalid(),
+      media::TimeUnit::Invalid(), Some(aInfo.mRotation));
 
   if (mSecondaryContainer) {
-    mSecondaryContainer->SetCurrentFrame(aInfo.mDisplay, blank, now,
-                                         media::TimeUnit::Invalid(),
-                                         media::TimeUnit::Invalid(), Nothing());
+    mSecondaryContainer->SetCurrentFrame(
+        aInfo.mDisplay, blank, now, media::TimeUnit::Invalid(),
+        media::TimeUnit::Invalid(), Some(aInfo.mRotation));
   }
 }
 
@@ -724,7 +724,7 @@ void VideoSink::SetSecondaryVideoContainer(VideoFrameContainer* aSecondary) {
           /* producerId */ ImageContainer::AllocateProducerID(),
           owningImage->mProcessingDuration, owningImage->mMediaTime,
           owningImage->mWebrtcCaptureTime, owningImage->mWebrtcReceiveTime,
-          owningImage->mRtpTimestamp));
+          owningImage->mRtpTimestamp, owningImage->mRotation));
       secondaryImageContainer->SetCurrentImages(currentFrame);
     }
   }

@@ -2184,7 +2184,14 @@ void MediaFormatReader::HandleDemuxedSamples(
           TrackTypeToStr(aTrack), decoder.mLastStreamSourceID, info->GetID(),
           recyclable, decoder.mDecoder->ShouldDecoderAlwaysBeRecycled());
       recyclable |= decoder.mDecoder->ShouldDecoderAlwaysBeRecycled();
-      if (!recyclable && decoder.mTimeThreshold.isNothing() &&
+      // The external engine consumes queued samples itself; flushing here
+      // would discard input that it has not presented yet.
+      const bool rotationChanged =
+          !mMediaEngineId && aTrack == TrackInfo::kVideoTrack &&
+          info->GetAsVideoInfo()->mRotation !=
+              decoder.GetCurrentInfo()->GetAsVideoInfo()->mRotation;
+      if ((!recyclable || rotationChanged) &&
+          decoder.mTimeThreshold.isNothing() &&
           (decoder.mNextStreamSourceID.isNothing() ||
            decoder.mNextStreamSourceID.ref() != info->GetID())) {
         LOG("draining decoder for stream id change.");
@@ -2204,7 +2211,7 @@ void MediaFormatReader::HandleDemuxedSamples(
         // We can attempt to use hardware decoding again.
         decoder.mHardwareDecodingDisabled = false;
         decoder.mFirstFrameTime = Some(sample->mTime);
-      } else if (decoder.HasWaitingPromise()) {
+      } else if (rotationChanged || decoder.HasWaitingPromise()) {
         decoder.Flush();
       }
     }
@@ -2241,6 +2248,10 @@ void MediaFormatReader::HandleDemuxedSamples(
       InternalSeek(aTrack, seekTarget);
       return;
     }
+  }
+
+  if (!mMediaEngineId && decoder.mFlushing) {
+    return;
   }
 
   if (!decoder.mDecoder) {
