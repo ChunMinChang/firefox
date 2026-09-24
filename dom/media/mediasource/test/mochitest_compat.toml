@@ -226,6 +226,30 @@ support-files = [
   "bug2039853_hevc_chunk2.m4s",
   "bug2039853_hevc_chunk3.m4s",
   "bug2039853_hevc_chunk4.m4s",
+  "rotation/portrait-init.mp4",
+  "rotation/portrait-1.m4s",
+  "rotation/portrait-2.m4s",
+  "rotation/portrait-3.m4s",
+  "rotation/landscape-init.mp4",
+  "rotation/landscape-1.m4s",
+  "rotation/landscape-2.m4s",
+  "rotation/landscape-3.m4s",
+  "rotation/landscape-rot90-init.mp4",
+  "rotation/landscape-rot90-1.m4s",
+  "rotation/landscape-rot90-2.m4s",
+  "rotation/landscape-rot90-3.m4s",
+  "rotation/portrait-init.mp4^headers^",
+  "rotation/portrait-1.m4s^headers^",
+  "rotation/portrait-2.m4s^headers^",
+  "rotation/portrait-3.m4s^headers^",
+  "rotation/landscape-init.mp4^headers^",
+  "rotation/landscape-1.m4s^headers^",
+  "rotation/landscape-2.m4s^headers^",
+  "rotation/landscape-3.m4s^headers^",
+  "rotation/landscape-rot90-init.mp4^headers^",
+  "rotation/landscape-rot90-1.m4s^headers^",
+  "rotation/landscape-rot90-2.m4s^headers^",
+  "rotation/landscape-rot90-3.m4s^headers^",
 ]
 
 ["test_AVC3_mp4.html"]
@@ -306,6 +330,8 @@ skip-if = [
 ["test_MultipleInitSegments.html"]
 
 ["test_MultipleInitSegments_mp4.html"]
+
+["test_StreamRotationChange.html"]
 
 ["test_OnEvents.html"]
 

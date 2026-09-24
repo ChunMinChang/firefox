@@ -1,0 +1,171 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Rotation metadata can change in a running stream</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script type="text/javascript" src="mediasource.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
+</head>
+<body>
+<pre id="test">
+<script class="testbody" type="text/javascript">
+
+const SEG_DUR = 0.4;
+
+function expectResizeEvents({ segments, seeks, wantResizeEvents }) {
+  const { promise, resolve, reject } = Promise.withResolvers();
+
+  runWithMSE(async (ms, video) => {
+    video.controls = true;
+    video.addEventListener("error", e => {
+      reject(new Error(e.error));
+    });
+    const resizeEvents = [];
+    video.onresize = () => {
+      resizeEvents.push([video.videoWidth, video.videoHeight]);
+    };
+
+    await once(ms, 'sourceopen');
+    const sb = ms.addSourceBuffer('video/mp4');
+    sb.addEventListener("error", e => {
+      reject(new Error(e.error));
+    });
+
+    const buffers = await Promise.all(segments.map((seg) => fetch(seg).then(buf => buf.arrayBuffer())));
+
+    for (const buf of buffers) {
+      sb.appendBuffer(buf)
+      await once(sb, 'updateend');
+    }
+    ms.endOfStream();
+    await once(ms, 'sourceended')
+
+    if (seeks) {
+      for (const time of seeks) {
+        video.currentTime = time;
+        await once(video, 'seeked');
+      }
+    }
+    video.play();
+    await once(video, 'ended');
+
+    is(resizeEvents.length, wantResizeEvents.length, 'number of resizes (' + resizeEvents + ')');
+    for (let i = 0; i < Math.min(resizeEvents.length, wantResizeEvents.length); i += 1) {
+      is(resizeEvents[i][0], wantResizeEvents[i][0]);
+      is(resizeEvents[i][1], wantResizeEvents[i][1]);
+    }
+    video.remove();
+    resolve();
+  });
+
+  return promise;
+}
+
+add_task(async function testChangeStreamRotationNoSizeChange() {
+  await expectResizeEvents({
+    segments: [
+      "rotation/portrait-init.mp4",
+      "rotation/portrait-1.m4s",
+      "rotation/landscape-rot90-init.mp4",
+      "rotation/landscape-rot90-2.m4s",
+      "rotation/portrait-init.mp4",
+      "rotation/portrait-3.m4s",
+    ],
+    wantResizeEvents: [[240, 320]],
+  });
+
+  await expectResizeEvents({
+    segments: [
+      "rotation/landscape-rot90-init.mp4",
+      "rotation/landscape-rot90-1.m4s",
+      "rotation/portrait-init.mp4",
+      "rotation/portrait-2.m4s",
+      "rotation/landscape-rot90-init.mp4",
+      "rotation/landscape-rot90-3.m4s",
+    ],
+    seeks: [
+      1.5 * SEG_DUR,
+      0.5 * SEG_DUR,
+      3.5 * SEG_DUR,
+      0.0,
+    ],
+    wantResizeEvents: [[240, 320]],
+  });
+});
+
+add_task(async function testChangeStreamRotationWithSizeChange() {
+  const seq1 = [
+    "rotation/landscape-rot90-init.mp4",
+    "rotation/landscape-rot90-1.m4s",
+    "rotation/landscape-init.mp4",
+    "rotation/landscape-2.m4s",
+    "rotation/portrait-init.mp4",
+    "rotation/portrait-3.m4s",
+  ];
+  await expectResizeEvents({
+    segments: seq1,
+    wantResizeEvents: [
+      [240, 320],
+      [320, 240],
+      [240, 320],
+    ],
+  });
+
+  await expectResizeEvents({
+    segments: seq1,
+    seeks: [
+      1.1 * SEG_DUR,
+      2.2 * SEG_DUR,
+      2.6 * SEG_DUR,
+      0.0,
+      1.2 * SEG_DUR,
+    ],
+    wantResizeEvents: [
+      [240, 320],
+      [320, 240],
+      [240, 320],
+      [320, 240],
+      [240, 320],
+    ],
+  });
+
+  const seq2 = [
+    "rotation/landscape-init.mp4",
+    "rotation/landscape-1.m4s",
+    "rotation/landscape-rot90-init.mp4",
+    "rotation/landscape-rot90-2.m4s",
+    "rotation/landscape-init.mp4",
+    "rotation/landscape-3.m4s",
+  ];
+  await expectResizeEvents({
+    segments: seq2,
+    wantResizeEvents: [
+      [320, 240],
+      [240, 320],
+      [320, 240],
+    ],
+  });
+
+  await expectResizeEvents({
+    segments: seq2,
+    seeks: [
+      0.5 * SEG_DUR,
+      2.2 * SEG_DUR,
+      1.2 * SEG_DUR,
+      0.0
+    ],
+    wantResizeEvents: [
+      [320, 240],
+      [240, 320],
+      [320, 240],
+      [240, 320],
+      [320, 240],
+    ],
+  });
+});
+
+</script>
+</pre>
+</body>
+</head>
+</html>
