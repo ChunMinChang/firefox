@@ -1,6 +1,7 @@
 <!DOCTYPE HTML>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>Rotation metadata can change in a running stream</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script type="text/javascript" src="mediasource.js"></script>
@@ -10,162 +11,155 @@
 <pre id="test">
 <script class="testbody" type="text/javascript">
 
-const SEG_DUR = 0.4;
+"use strict";
 
-function expectResizeEvents({ segments, seeks, wantResizeEvents }) {
-  const { promise, resolve, reject } = Promise.withResolvers();
+const SEGMENT_DURATION = 0.6;
+const PORTRAIT = [240, 320];
+const LANDSCAPE = [320, 240];
 
-  runWithMSE(async (ms, video) => {
-    video.controls = true;
-    video.addEventListener("error", e => {
-      reject(new Error(e.error));
-    });
+function rotationEvent(target, name, signal) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      target.removeEventListener(name, onEvent);
+      target.removeEventListener("error", onError);
+      target.removeEventListener("abort", onError);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onEvent = event => {
+      cleanup();
+      resolve(event);
+    };
+    const onError = event => {
+      cleanup();
+      reject(new Error(`${target.constructor.name}: ${event.type} while waiting for ${name}`));
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    target.addEventListener(name, onEvent);
+    target.addEventListener("error", onError);
+    target.addEventListener("abort", onError);
+    signal.addEventListener("abort", onAbort);
+  });
+}
+
+const rotationCases = {
+  representationChange: {
+    representations: ["portrait", "landscape-rot90", "portrait"],
+    playbackSizes: [PORTRAIT],
+  },
+  initiallyRotated: {
+    representations: ["landscape-rot90", "portrait", "landscape-rot90"],
+    playbackSizes: [PORTRAIT],
+    seeks: [[0.9, PORTRAIT], [0.3, PORTRAIT], [1.5, PORTRAIT], [0, PORTRAIT]],
+  },
+  rotationAndRepresentationChange: {
+    representations: ["landscape-rot90", "landscape", "portrait"],
+    playbackSizes: [PORTRAIT, LANDSCAPE, PORTRAIT],
+    seeks: [[0.9, LANDSCAPE], [1.5, PORTRAIT], [0.3, PORTRAIT], [0.9, LANDSCAPE], [0, PORTRAIT]],
+  },
+  rotationOnly: {
+    representations: ["landscape", "landscape-rot90", "landscape"],
+    playbackSizes: [LANDSCAPE, PORTRAIT, LANDSCAPE],
+    seeks: [[0.9, PORTRAIT], [1.5, LANDSCAPE], [0.3, LANDSCAPE], [0.9, PORTRAIT], [0, LANDSCAPE]],
+  },
+};
+
+function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
+  return runWithMSE(async (ms, video) => {
+    const controller = new AbortController();
+    const { signal } = controller;
     const resizeEvents = [];
-    video.onresize = () => {
+    video.addEventListener("error", () => {
+      controller.abort(new Error(`Video error: ${video.error?.message}`));
+    }, { signal });
+    video.addEventListener("resize", () => {
       resizeEvents.push([video.videoWidth, video.videoHeight]);
+    }, { signal });
+
+    const checkDimensions = (expected, label) => {
+      isDeeply([video.videoWidth, video.videoHeight], expected, label);
     };
 
-    await once(ms, 'sourceopen');
-    const sb = ms.addSourceBuffer('video/mp4');
-    sb.addEventListener("error", e => {
-      reject(new Error(e.error));
-    });
-
-    const buffers = await Promise.all(segments.map((seg) => fetch(seg).then(buf => buf.arrayBuffer())));
-
-    for (const buf of buffers) {
-      sb.appendBuffer(buf)
-      await once(sb, 'updateend');
-    }
-    ms.endOfStream();
-    await once(ms, 'sourceended')
-
-    if (seeks) {
-      for (const time of seeks) {
-        video.currentTime = time;
-        await once(video, 'seeked');
+    try {
+      await rotationEvent(ms, "sourceopen", signal);
+      const sb = ms.addSourceBuffer("video/mp4");
+      const segments = representations.flatMap((name, index) => [
+        `rotation/${name}-init.mp4`,
+        `rotation/${name}-${index + 1}.m4s`,
+      ]);
+      const buffers = await Promise.all(segments.map(async segment => {
+        const response = await fetch(segment, { signal });
+        if (!response.ok) {
+          throw new Error(`${segment}: HTTP ${response.status}`);
+        }
+        return response.arrayBuffer();
+      }));
+      for (const buffer of buffers) {
+        await Promise.all([
+          rotationEvent(sb, "updateend", signal),
+          Promise.resolve().then(() => sb.appendBuffer(buffer)),
+        ]);
       }
-    }
-    video.play();
-    await once(video, 'ended');
+      ms.endOfStream();
 
-    is(resizeEvents.length, wantResizeEvents.length, 'number of resizes (' + resizeEvents + ')');
-    for (let i = 0; i < Math.min(resizeEvents.length, wantResizeEvents.length); i += 1) {
-      is(resizeEvents[i][0], wantResizeEvents[i][0]);
-      is(resizeEvents[i][1], wantResizeEvents[i][1]);
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await rotationEvent(video, "loadeddata", signal);
+      }
+      checkDimensions(playbackSizes[0], "Dimensions of the first paused frame");
+      await Promise.all([
+        rotationEvent(video, "ended", signal),
+        video.play(),
+      ]);
+      isfuzzy(video.duration, representations.length * SEGMENT_DURATION, 0.001,
+              "Playback spans all three complete segments");
+      checkDimensions(playbackSizes.at(-1), "Dimensions at the end of forward playback");
+      isDeeply(resizeEvents, playbackSizes, "Forward playback resize history");
+
+      video.pause();
+      const expectedSizes = [...playbackSizes];
+      for (const [time, size] of seeks) {
+        await Promise.all([
+          rotationEvent(video, "seeked", signal),
+          Promise.resolve().then(() => { video.currentTime = time; }),
+        ]);
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        ok(video.paused, `Seeking to ${time} leaves playback paused`);
+        checkDimensions(size, `Dimensions after paused seek to ${time}`);
+        if (size.some((dimension, index) => dimension !== expectedSizes.at(-1)[index])) {
+          expectedSizes.push(size);
+        }
+      }
+      isDeeply(resizeEvents, expectedSizes, "Playback and paused-seek resize history");
+    } finally {
+      controller.abort(new Error("Rotation test finished"));
+      URL.revokeObjectURL(video.src);
+      video.removeAttribute("src");
+      video.load();
+      video.remove();
     }
-    video.remove();
-    resolve();
   });
-
-  return promise;
 }
 
 add_task(async function testChangeStreamRotationNoSizeChange() {
-  await expectResizeEvents({
-    segments: [
-      "rotation/portrait-init.mp4",
-      "rotation/portrait-1.m4s",
-      "rotation/landscape-rot90-init.mp4",
-      "rotation/landscape-rot90-2.m4s",
-      "rotation/portrait-init.mp4",
-      "rotation/portrait-3.m4s",
-    ],
-    wantResizeEvents: [[240, 320]],
-  });
-
-  await expectResizeEvents({
-    segments: [
-      "rotation/landscape-rot90-init.mp4",
-      "rotation/landscape-rot90-1.m4s",
-      "rotation/portrait-init.mp4",
-      "rotation/portrait-2.m4s",
-      "rotation/landscape-rot90-init.mp4",
-      "rotation/landscape-rot90-3.m4s",
-    ],
-    seeks: [
-      1.5 * SEG_DUR,
-      0.5 * SEG_DUR,
-      3.5 * SEG_DUR,
-      0.0,
-    ],
-    wantResizeEvents: [[240, 320]],
-  });
+  await expectResizeEvents(rotationCases.representationChange);
+  await expectResizeEvents(rotationCases.initiallyRotated);
 });
 
 add_task(async function testChangeStreamRotationWithSizeChange() {
-  const seq1 = [
-    "rotation/landscape-rot90-init.mp4",
-    "rotation/landscape-rot90-1.m4s",
-    "rotation/landscape-init.mp4",
-    "rotation/landscape-2.m4s",
-    "rotation/portrait-init.mp4",
-    "rotation/portrait-3.m4s",
-  ];
-  await expectResizeEvents({
-    segments: seq1,
-    wantResizeEvents: [
-      [240, 320],
-      [320, 240],
-      [240, 320],
-    ],
-  });
-
-  await expectResizeEvents({
-    segments: seq1,
-    seeks: [
-      1.1 * SEG_DUR,
-      2.2 * SEG_DUR,
-      2.6 * SEG_DUR,
-      0.0,
-      1.2 * SEG_DUR,
-    ],
-    wantResizeEvents: [
-      [240, 320],
-      [320, 240],
-      [240, 320],
-      [320, 240],
-      [240, 320],
-    ],
-  });
-
-  const seq2 = [
-    "rotation/landscape-init.mp4",
-    "rotation/landscape-1.m4s",
-    "rotation/landscape-rot90-init.mp4",
-    "rotation/landscape-rot90-2.m4s",
-    "rotation/landscape-init.mp4",
-    "rotation/landscape-3.m4s",
-  ];
-  await expectResizeEvents({
-    segments: seq2,
-    wantResizeEvents: [
-      [320, 240],
-      [240, 320],
-      [320, 240],
-    ],
-  });
-
-  await expectResizeEvents({
-    segments: seq2,
-    seeks: [
-      0.5 * SEG_DUR,
-      2.2 * SEG_DUR,
-      1.2 * SEG_DUR,
-      0.0
-    ],
-    wantResizeEvents: [
-      [320, 240],
-      [240, 320],
-      [320, 240],
-      [240, 320],
-      [320, 240],
-    ],
-  });
+  for (const testCase of [rotationCases.rotationAndRepresentationChange, rotationCases.rotationOnly]) {
+    await expectResizeEvents({ ...testCase, seeks: [] });
+    await expectResizeEvents(testCase);
+  }
 });
 
 </script>
 </pre>
 </body>
-</head>
 </html>
