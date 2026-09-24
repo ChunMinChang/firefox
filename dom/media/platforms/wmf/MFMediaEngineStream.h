@@ -116,6 +116,10 @@ class MFMediaEngineStream
   // True if the stream already has enough raw data.
   virtual bool HasEnoughRawData() const = 0;
 
+  virtual HRESULT UpdateMediaTypeForSample(const MediaRawData* aSample) {
+    return S_OK;
+  }
+
   HRESULT CreateInputSample(IMFSample** aSample);
   void ReplySampleRequestIfPossible();
   bool ShouldServeSamples() const;

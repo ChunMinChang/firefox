@@ -250,6 +250,7 @@ class ArrayOfRemoteMediaRawData {
     Maybe<uint8_t> mTemporalLayerId;
     Maybe<media::TimeInterval> mOriginalPresentationWindow;
     Maybe<CryptoInfo> mCryptoConfig;
+    Maybe<VideoInfo> mVideoInfo;
   };
 
  private:

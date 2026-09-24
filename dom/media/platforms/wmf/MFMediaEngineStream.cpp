@@ -418,6 +418,7 @@ HRESULT MFMediaEngineStream::CreateInputSample(IMFSample** aSample) {
 
   MOZ_ASSERT(mRawDataQueueForFeedingEngine.GetSize() != 0);
   RefPtr<MediaRawData> data = mRawDataQueueForFeedingEngine.PopFront();
+  RETURN_IF_FAILED(UpdateMediaTypeForSample(data));
   SLOGV(
       "CreateInputSample, pop data [{}, {}] (duration={}, kf={}, "
       "encrypted={}), queue size={}",

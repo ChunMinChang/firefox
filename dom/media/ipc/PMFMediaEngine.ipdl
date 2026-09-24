@@ -9,6 +9,7 @@ include protocol PRemoteMediaManager;
 using mozilla::AudioInfo from "MediaInfo.h";
 using mozilla::VideoInfo from "MediaInfo.h";
 using mozilla::MediaResult from "MediaResult.h";
+[MoveOnly] using mozilla::RemoteImageHolder from "mozilla/RemoteImageHolder.h";
 using mozilla::TrackInfo::TrackType from "MediaInfo.h";
 using mozilla::MFMediaEngineError from "MFMediaEngineUtils.h";
 using mozilla::MFMediaEngineEvent from "MFMediaEngineUtils.h";
@@ -60,6 +61,7 @@ child:
   async RequestSample(TrackType type, bool isEnough);
   async UpdateStatisticData(StatisticData data);
   async NotifyResizing(uint32_t width, uint32_t height);
+  async NotifyVideoFrame(RemoteImageHolder image);
   async NotifyFrameServerMode();
 };
 

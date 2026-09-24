@@ -246,6 +246,18 @@ mozilla::ipc::IPCResult MFMediaEngineChild::RecvUpdateStatisticData(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult MFMediaEngineChild::RecvNotifyVideoFrame(
+    RemoteImageHolder&& aImage) {
+  AssertOnManagerThread();
+  if (mShutdown || !mOwner) {
+    return IPC_OK();
+  }
+  if (RefPtr<layers::Image> image = aImage.TransferToImage()) {
+    mOwner->NotifyVideoFrame(std::move(image));
+  }
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult MFMediaEngineChild::RecvNotifyResizing(
     uint32_t aWidth, uint32_t aHeight) {
   AssertOnManagerThread();
@@ -465,6 +477,11 @@ void MFMediaEngineWrapper::NotifyWaitingForKey() {
 #ifdef MOZ_WMF_CDM
   mOwner->NotifyWaitingForKey();
 #endif
+}
+
+void MFMediaEngineWrapper::NotifyVideoFrame(RefPtr<layers::Image> aImage) {
+  AssertOnManagerThread();
+  mOwner->NotifyVideoFrame(std::move(aImage));
 }
 
 void MFMediaEngineWrapper::NotifyResizing(uint32_t aWidth, uint32_t aHeight) {

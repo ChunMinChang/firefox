@@ -29,10 +29,13 @@
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/ipc/UtilityMediaServiceParent.h"
 #include "mozilla/ipc/UtilityProcessChild.h"
+#include "mozilla/layers/DcompSurfaceImage.h"
+#include "mozilla/layers/KnowsCompositor.h"
 
 namespace mozilla {
 
@@ -271,6 +274,7 @@ void MFMediaEngineParent::HandleMediaEngineEvent(
     case MF_MEDIA_ENGINE_EVENT_FORMATCHANGE: {
       if (mMediaEngine->HasVideo()) {
         NotifyVideoResizing();
+        EnsureDcompSurfaceHandle();
       }
       break;
     }
@@ -304,11 +308,18 @@ void MFMediaEngineParent::HandleMediaEngineEvent(
       if (mMediaEngine->HasVideo() && !mIsFrameServerMode) {
         EnsureDcompSurfaceHandle();
       }
-      [[fallthrough]];
+      (void)SendNotifyEvent(aEvent.mEvent);
+      break;
     }
+    case MF_MEDIA_ENGINE_EVENT_SEEKED:
+      if (mMediaEngine->HasVideo() && !mIsFrameServerMode) {
+        NotifyVideoResizing();
+        EnsureDcompSurfaceHandle();
+      }
+      (void)SendNotifyEvent(aEvent.mEvent);
+      break;
     case MF_MEDIA_ENGINE_EVENT_LOADEDDATA:
     case MF_MEDIA_ENGINE_EVENT_WAITING:
-    case MF_MEDIA_ENGINE_EVENT_SEEKED:
     case MF_MEDIA_ENGINE_EVENT_BUFFERINGSTARTED:
     case MF_MEDIA_ENGINE_EVENT_BUFFERINGENDED:
       (void)SendNotifyEvent(aEvent.mEvent);
@@ -546,6 +557,7 @@ MFMediaEngineStreamWrapper* MFMediaEngineParent::GetMediaEngineStream(
   }
   MOZ_ASSERT(aType == TrackType::kVideoTrack);
   auto* stream = mMediaSource->GetVideoStream();
+  mVideoKnowsCompositor = aParam.mKnowsCompositor;
   stream->AsVideoStream()->SetKnowsCompositor(aParam.mKnowsCompositor);
   stream->AsVideoStream()->SetConfig(aParam.mConfig);
   return new MFMediaEngineStreamWrapper(stream, stream->GetTaskQueue(), aParam);
@@ -1038,12 +1050,50 @@ void MFMediaEngineParent::EnsureDcompSurfaceHandle() {
   if (surfaceHandle && surfaceHandle != INVALID_HANDLE_VALUE) {
     LOG("EnsureDcompSurfaceHandle, handle={}, size=[{}x{}]",
         fmt::ptr(surfaceHandle), size.width, size.height);
+    SendVideoFrame(surfaceHandle, size);
     mMediaSource->SetDCompSurfaceHandle(surfaceHandle, size);
   } else {
     // The surface isn't ready yet (e.g. the first frame hasn't been decoded).
     // EnsureDcompSurfaceHandle will be called again on the next engine event.
     LOG("SurfaceHandle not ready yet, will retry later");
   }
+}
+
+void MFMediaEngineParent::SendVideoFrame(HANDLE aHandle,
+                                         const gfx::IntSize& aSize) {
+  AssertOnManagerThread();
+  if (!mVideoKnowsCompositor || !mVideoKnowsCompositor->GetTextureForwarder()) {
+    return;
+  }
+  auto handle = DuplicateFileHandle(aHandle);
+  if (!FileHandleIsValid(handle)) {
+    (void)SendNotifyError(MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR));
+    return;
+  }
+  RefPtr<layers::Image> image = new layers::DcompSurfaceImage(
+      handle.release(), aSize, gfx::SurfaceFormat::B8G8R8A8,
+      mVideoKnowsCompositor);
+  RefPtr<layers::TextureClient> texture =
+      image->GetTextureClient(mVideoKnowsCompositor);
+  if (!texture->InitIPDLActor(mVideoKnowsCompositor,
+                              mManager->GetContentId())) {
+    (void)SendNotifyError(MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR));
+    return;
+  }
+  texture->SetAddedToCompositableClient();
+  layers::SurfaceDescriptorRemoteDecoder remote;
+  texture->GetSurfaceDescriptorRemoteDecoder(&remote);
+  layers::SurfaceDescriptor descriptor;
+  descriptor = remote;
+  mManager->StoreImage(
+      static_cast<const layers::SurfaceDescriptorGPUVideo&>(descriptor), image,
+      texture);
+  RemoteImageHolder holder(
+      mManager, layers::VideoBridgeSource::MFMediaEngineCDMProcess, aSize,
+      image->GetColorDepth(), descriptor, gfx::YUVColorSpace::Default,
+      gfx::ColorSpace2::UNKNOWN, gfx::TransferFunction::BT709,
+      gfx::ColorRange::LIMITED);
+  (void)SendNotifyVideoFrame(std::move(holder));
 }
 
 void MFMediaEngineParent::NotifyVideoResizing() {

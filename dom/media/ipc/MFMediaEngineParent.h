@@ -91,6 +91,7 @@ class MFMediaEngineParent final : public PMFMediaEngineParent {
   void DestroyEngineIfExists(const Maybe<MediaResult>& aError = Nothing());
 
   void EnsureDcompSurfaceHandle();
+  void SendVideoFrame(HANDLE aHandle, const gfx::IntSize& aSize);
 
   void UpdateStatisticsData();
 
@@ -132,6 +133,7 @@ class MFMediaEngineParent final : public PMFMediaEngineParent {
 
   const RefPtr<RemoteMediaManagerParent> mManager;
   const RefPtr<nsISerialEventTarget> mManagerThread;
+  RefPtr<layers::KnowsCompositor> mVideoKnowsCompositor;
 
   // Required classes for working with the media engine.
   Microsoft::WRL::ComPtr<IMFMediaEngine> mMediaEngine;

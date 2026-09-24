@@ -371,6 +371,13 @@ void ExternalEngineStateMachine::OnMetadataRead(MetadataHolder&& aMetadata) {
 
   if (mInfo->HasVideo()) {
     mVideoDisplay = mInfo->mVideo.mDisplay;
+    if (mInfo->mVideo.mRotation == VideoRotation::kDegree_90 ||
+        mInfo->mVideo.mRotation == VideoRotation::kDegree_270) {
+      std::swap(mVideoDisplay.width, mVideoDisplay.height);
+    }
+    // The engine applies source rotation before publishing its surface.
+    aMetadata.mInfo->mVideo.mRotation = VideoRotation::kDegree_0;
+    aMetadata.mInfo->mVideo.mDisplay = mVideoDisplay;
   }
 
   if (IsBeingProfiledOrLogEnabled()) {
@@ -510,9 +517,6 @@ RefPtr<MediaDecoder::SeekPromise> ExternalEngineStateMachine::Seek(
   mOnPlaybackEvent.Notify(MediaPlaybackEvent::SeekStarted);
   mOnNextFrameStatus.Notify(MediaDecoderOwner::NEXT_FRAME_UNAVAILABLE_SEEKING);
 
-  // Notify the external playback engine about seeking. After the engine changes
-  // its current time, it would send `seeked` event.
-  mEngine->Seek(aTarget.GetTime());
   state->mWaitingEngineSeeked = true;
   SeekReader();
   return state->mSeekJob.mPromise.Ensure(__func__);
@@ -550,6 +554,10 @@ void ExternalEngineStateMachine::OnSeekResolved(const media::TimeUnit& aUnit) {
   PROFILER_MARKER_UNTYPED("EESM::OnReaderSeekResolved", MEDIA_PLAYBACK);
   state->mSeekRequest.Complete();
   state->mWaitingReaderSeeked = false;
+
+  // The reader has flushed the old input before the engine starts seeking.
+  state->mWaitingEngineSeeked = true;
+  mEngine->Seek(state->GetTargetTime());
 
   // Start sending new data to the external playback engine.
   if (HasAudio()) {
@@ -1048,21 +1056,8 @@ void ExternalEngineStateMachine::OnRequestVideo() {
                 "ExternalEngineStateMachine::OnRequestVideo:Resolved",
                 MEDIA_PLAYBACK);
             MOZ_ASSERT(aVideo);
-            if (!mHasReceivedFirstDecodedVideoFrame) {
-              mHasReceivedFirstDecodedVideoFrame = true;
-              OnLoadedFirstFrame();
-            }
             RunningEngineUpdate(MediaData::Type::VIDEO_DATA);
-            // Send image to PIP window.
-            if (mSecondaryVideoContainer.Ref()) {
-              mSecondaryVideoContainer.Ref()->SetCurrentFrame(
-                  mVideoDisplay, aVideo->mImage, TimeStamp::Now(),
-                  media::TimeUnit::Invalid(), aVideo->mTime, Nothing());
-            } else {
-              mVideoFrameContainer->SetCurrentFrame(
-                  mVideoDisplay, aVideo->mImage, TimeStamp::Now(),
-                  media::TimeUnit::Invalid(), aVideo->mTime, Nothing());
-            }
+            UpdateVideoFrame(aVideo->mTime);
           },
           [this, self](const MediaResult& aError) {
             mVideoDataRequest.Complete();
@@ -1094,6 +1089,28 @@ void ExternalEngineStateMachine::OnRequestVideo() {
       ->Track(mVideoDataRequest);
 }
 
+void ExternalEngineStateMachine::UpdateVideoFrame(
+    const media::TimeUnit& aMediaTime) {
+  AssertOnTaskQueue();
+  if (!mVideoImage) {
+    return;
+  }
+  mVideoDisplay = mVideoImage->GetSize();
+  const auto now = TimeStamp::Now();
+  mVideoFrameContainer->SetCurrentFrame(mVideoDisplay, mVideoImage, now,
+                                        media::TimeUnit::Invalid(), aMediaTime,
+                                        Some(VideoRotation::kDegree_0));
+  if (mSecondaryVideoContainer.Ref()) {
+    mSecondaryVideoContainer.Ref()->SetCurrentFrame(
+        mVideoDisplay, mVideoImage, now, media::TimeUnit::Invalid(), aMediaTime,
+        Some(VideoRotation::kDegree_0));
+  }
+  if (!mHasReceivedFirstDecodedVideoFrame) {
+    mHasReceivedFirstDecodedVideoFrame = true;
+    OnLoadedFirstFrame();
+  }
+}
+
 void ExternalEngineStateMachine::OnLoadedFirstFrame() {
   AssertOnTaskQueue();
   // We will wait until receive the first video frame.
@@ -1113,8 +1130,10 @@ void ExternalEngineStateMachine::OnLoadedFirstFrame() {
       mSentFirstFrameLoadedEvent ? MediaDecoderEventVisibility::Suppressed
                                  : MediaDecoderEventVisibility::Observable;
   mSentFirstFrameLoadedEvent = true;
-  mFirstFrameLoadedEvent.Notify(UniquePtr<MediaInfo>(new MediaInfo(Info())),
-                                visibility);
+  auto presentationInfo = MakeUnique<MediaInfo>(Info());
+  presentationInfo->mVideo.mRotation = VideoRotation::kDegree_0;
+  presentationInfo->mVideo.mDisplay = mVideoDisplay;
+  mFirstFrameLoadedEvent.Notify(std::move(presentationInfo), visibility);
   mOnNextFrameStatus.Notify(MediaDecoderOwner::NEXT_FRAME_AVAILABLE);
 }
 
@@ -1152,6 +1171,9 @@ void ExternalEngineStateMachine::OnSeeked() {
 
   const auto currentTime = mEngine->GetCurrentPosition();
   auto* state = mState.AsSeekingData();
+  if (state->mWaitingReaderSeeked) {
+    return;
+  }
   if (IsBeingProfiledOrLogEnabled()) {
     nsPrintfCString msg("target=%" PRId64 ", currentTime=%" PRId64,
                         state->GetTargetTime().ToMicroseconds(),
@@ -1461,6 +1483,8 @@ void ExternalEngineStateMachine::UpdateSecondaryVideoContainer() {
   AssertOnTaskQueue();
   LOG("UpdateSecondaryVideoContainer={}",
       fmt::ptr(mSecondaryVideoContainer.Ref().get()));
+  UpdateVideoFrame(GetVideoThreshold());
+  mOnPlaybackEvent.Notify(MediaPlaybackEvent::Invalidate);
   mOnSecondaryVideoContainerInstalled.Notify(mSecondaryVideoContainer.Ref());
 }
 

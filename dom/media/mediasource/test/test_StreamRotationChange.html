@@ -137,7 +137,13 @@ function expectResizeEvents({ representations, playbackSizes, seeks = [] }, clon
       checkDimensions(playbackSizes[0], "Dimensions of the first paused frame");
       await Promise.all([
         rotationEvent(video, "ended", signal),
-        video.play(),
+        video.play().then(async () => {
+          if (SpecialPowers.getIntPref("media.wmf.media-engine.enabled", 0) === 1) {
+            const debug = await SpecialPowers.wrap(video).mozRequestDebugInfo();
+            ok(debug.decoder.reader.videoDecoderName.startsWith("media engine video stream"),
+               "The media-engine configuration must exercise ExternalEngineStateMachine");
+          }
+        }),
       ]);
       isfuzzy(video.duration, representations.length * SEGMENT_DURATION, 0.001,
               "Playback spans all three complete segments");

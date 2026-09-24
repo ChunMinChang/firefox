@@ -48,6 +48,7 @@ class MFMediaEngineChild final : public PMFMediaEngineChild {
   mozilla::ipc::IPCResult RecvUpdateStatisticData(const StatisticData& aData);
   mozilla::ipc::IPCResult RecvNotifyResizing(uint32_t aWidth, uint32_t aHeight);
   mozilla::ipc::IPCResult RecvNotifyFrameServerMode();
+  mozilla::ipc::IPCResult RecvNotifyVideoFrame(RemoteImageHolder&& aImage);
 
   nsISerialEventTarget* ManagerThread() const { return mManagerThread; }
   void AssertOnManagerThread() const {
@@ -129,6 +130,7 @@ class MFMediaEngineWrapper final : public ExternalPlaybackEngine {
 
   void UpdateCurrentTime(double aCurrentTimeInSecond);
   void NotifyEvent(ExternalEngineEvent aEvent);
+  void NotifyVideoFrame(RefPtr<layers::Image> aImage);
   void NotifyError(const MediaResult& aError);
   void NotifyHardwareReset(uint32_t aPlatformError);
   void NotifyWaitingForKey();

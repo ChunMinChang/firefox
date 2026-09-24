@@ -154,7 +154,8 @@ HRESULT MFMediaEngineVideoStream::CreateMediaType(const TrackInfo& aInfo,
         return MFVideoRotationFormat_270;
     }
   };
-  const auto rotation = ToMFVideoRotationFormat(videoInfo.mRotation);
+  mRotation = videoInfo.mRotation;
+  const auto rotation = ToMFVideoRotationFormat(mRotation);
   RETURN_IF_FAILED(mediaType->SetUINT32(MF_MT_VIDEO_ROTATION, rotation));
 
   const auto transFunc = ToMFVideoTransFunc(videoInfo.mTransferFunction);
@@ -421,6 +422,23 @@ void MFMediaEngineVideoStream::UpdateConfig(const VideoInfo& aInfo) {
   RETURN_VOID_IF_FAILED(GenerateStreamDescriptor(mediaType));
   RETURN_VOID_IF_FAILED(mMediaEventQueue->QueueEventParamUnk(
       MEStreamFormatChanged, GUID_NULL, S_OK, mediaType.Get()));
+}
+
+HRESULT MFMediaEngineVideoStream::UpdateMediaTypeForSample(
+    const MediaRawData* aSample) {
+  AssertOnTaskQueue();
+  if (!aSample->mTrackInfo) {
+    return S_OK;
+  }
+  const auto* info = aSample->mTrackInfo->GetAsVideoInfo();
+  if (!info || info->mRotation == mRotation) {
+    return S_OK;
+  }
+  ComPtr<IMFMediaType> mediaType;
+  RETURN_IF_FAILED(CreateMediaType(*info, mediaType.GetAddressOf()));
+  RETURN_IF_FAILED(GenerateStreamDescriptor(mediaType));
+  return mMediaEventQueue->QueueEventParamUnk(MEStreamFormatChanged, GUID_NULL,
+                                              S_OK, mediaType.Get());
 }
 
 void MFMediaEngineVideoStream::ShutdownCleanUpOnTaskQueue() {

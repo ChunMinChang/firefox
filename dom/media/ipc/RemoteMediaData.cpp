@@ -142,8 +142,13 @@ bool ArrayOfRemoteMediaRawData::Fill(
     dataBuffers.AppendElement(std::move(entry->mBuffer));
     alphaBuffers.AppendElement(std::move(entry->mAlphaBuffer));
     extraDataBuffers.AppendElement(std::move(entry->mExtraData));
+    Maybe<VideoInfo> videoInfo;
     if (auto&& info = entry->mTrackInfo; info && info->GetAsVideoInfo()) {
       height = info->GetAsVideoInfo()->mImage.height;
+      if (entry->mContainerRotation) {
+        videoInfo.emplace(*info->GetAsVideoInfo());
+        videoInfo->mRotation = *entry->mContainerRotation;
+      }
     }
     mSamples.AppendElement(RemoteMediaRawData{
         MediaDataIPDL(entry->mOffset, entry->mTime, entry->mTimecode,
@@ -161,7 +166,8 @@ bool ArrayOfRemoteMediaRawData::Fill(
                   entry->mCrypto.mCryptByteBlock,
                   entry->mCrypto.mSkipByteBlock,
               })
-            : Nothing()});
+            : Nothing(),
+        std::move(videoInfo)});
   }
   PerformanceRecorder<PlaybackStage> perfRecorder(MediaStage::CopyDemuxedData,
                                                   height);
@@ -218,6 +224,10 @@ already_AddRefed<MediaRawData> ArrayOfRemoteMediaRawData::ElementAt(
   rawData->mEOS = sample.mEOS;
   rawData->mTemporalLayerId = sample.mTemporalLayerId;
   rawData->mExtraData = mExtraDatas.MediaByteBufferAt(aIndex);
+  if (sample.mVideoInfo) {
+    rawData->mTrackInfo = new TrackInfoSharedPtr(*sample.mVideoInfo, 0);
+    rawData->mContainerRotation = Some(sample.mVideoInfo->mRotation);
+  }
   if (sample.mCryptoConfig) {
     CryptoSample& cypto = rawData->GetWritableCrypto();
     cypto.mCryptoScheme = sample.mCryptoConfig->mEncryptionScheme();
@@ -265,7 +275,8 @@ already_AddRefed<MediaRawData> ArrayOfRemoteMediaRawData::ElementAt(
 namespace IPC {
 IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(
     mozilla::ArrayOfRemoteMediaRawData::RemoteMediaRawData, mBase, mEOS,
-    mHeight, mTemporalLayerId, mOriginalPresentationWindow, mCryptoConfig);
+    mHeight, mTemporalLayerId, mOriginalPresentationWindow, mCryptoConfig,
+    mVideoInfo);
 }
 
 namespace mozilla {

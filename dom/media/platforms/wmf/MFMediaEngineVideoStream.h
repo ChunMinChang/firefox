@@ -73,6 +73,8 @@ class MFMediaEngineVideoStream final : public MFMediaEngineStream {
 
   void UpdateConfig(const VideoInfo& aInfo);
 
+  HRESULT UpdateMediaTypeForSample(const MediaRawData* aSample) override;
+
   already_AddRefed<MediaData> OutputDataInternal() override;
 
   bool IsDCompImageReady();
@@ -99,6 +101,7 @@ class MFMediaEngineVideoStream final : public MFMediaEngineStream {
   // Task queue only members.
   HANDLE mDCompSurfaceHandle;
   bool mNeedRecreateImage;
+  VideoRotation mRotation = VideoRotation::kDegree_0;
   RefPtr<layers::KnowsCompositor> mKnowsCompositor;
 
   Mutex mMutex{"MFMediaEngineVideoStream"};

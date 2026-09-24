@@ -183,6 +183,9 @@ void MediaFormatReader::DecoderData::Flush() {
           }
           mFlushing = false;
           mShutdownPromise = nullptr;
+          if (mOwner->mMediaEngineId && mOwner->mPendingSeekTime) {
+            mOwner->ScheduleSeek();
+          }
           mOwner->ScheduleUpdate(type);
         },
         [type, this, p, d](const MediaResult& aError) {
@@ -196,6 +199,11 @@ void MediaFormatReader::DecoderData::Flush() {
           }
           mFlushing = false;
           mShutdownPromise = nullptr;
+          if (mOwner->mMediaEngineId && mOwner->mPendingSeekTime) {
+            mOwner->mPendingSeekTime.reset();
+            mOwner->mSeekPromise.RejectIfExists(SeekRejectValue(mType, aError),
+                                                __func__);
+          }
           mOwner->NotifyError(type, aError);
         });
   }
@@ -2110,6 +2118,11 @@ void MediaFormatReader::DecodeDemuxedSamples(TrackType aTrack,
 
   decoder.StartRecordDecodingPerf(aTrack, aSample);
 
+  if (mMediaEngineId && aTrack == TrackInfo::kVideoTrack) {
+    aSample->mContainerRotation =
+        Some(decoder.GetCurrentInfo()->GetAsVideoInfo()->mRotation);
+  }
+
   const CryptoSample& crypto = aSample->mCrypto;
   if (crypto.IsEncrypted() && !crypto.mPlainSizes.IsEmpty()) {
     if (crypto.mPlainSizes.Length() != crypto.mEncryptedSizes.Length()) {
@@ -3112,6 +3125,10 @@ void MediaFormatReader::AttemptSeek() {
   // issues.
   const bool isSeekingAudio = HasAudio() && !mOriginalSeekTarget.IsVideoOnly();
   const bool isSeekingVideo = HasVideo() && !mOriginalSeekTarget.IsAudioOnly();
+  if (mMediaEngineId && ((isSeekingAudio && mAudio.mFlushing) ||
+                         (isSeekingVideo && mVideo.mFlushing))) {
+    return;
+  }
   LOG("AttemptSeek, seekingAudio={}, seekingVideo={}", isSeekingAudio,
       isSeekingVideo);
   if (isSeekingVideo) {

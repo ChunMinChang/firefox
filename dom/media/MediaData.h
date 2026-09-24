@@ -768,6 +768,9 @@ class MediaRawData final : public MediaData {
 
   RefPtr<TrackInfoSharedPtr> mTrackInfo;
 
+  // Container metadata is independent of the codec monitor's configuration.
+  Maybe<VideoRotation> mContainerRotation;
+
   // Used to indicate the id of the temporal scalability layer.
   Maybe<uint8_t> mTemporalLayerId;
 

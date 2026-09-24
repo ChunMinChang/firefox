@@ -98,6 +98,18 @@ class ExternalEngineStateMachine final
                                  self->NotifyResizingInternal(aWidth, aHeight);
                                }));
   }
+  void NotifyVideoFrame(RefPtr<layers::Image> aImage) {
+    (void)OwnerThread()->Dispatch(NS_NewRunnableFunction(
+        "ExternalEngineStateMachine::NotifyVideoFrame",
+        [self = RefPtr{this}, image = std::move(aImage)]() mutable {
+          if (self->mState.IsShutdownEngine() || !self->mInfo) {
+            return;
+          }
+          self->mVideoImage = std::move(image);
+          self->UpdateVideoFrame(self->GetVideoThreshold());
+          self->mOnPlaybackEvent.Notify(MediaPlaybackEvent::Invalidate);
+        }));
+  }
   void NotifyHardwareReset(uint32_t aPlatformError) {
     // On the engine manager thread.
     (void)OwnerThread()->Dispatch(NS_NewRunnableFunction(
@@ -291,6 +303,7 @@ class ExternalEngineStateMachine final
   void OnEnded();
   void OnRequestAudio();
   void OnRequestVideo();
+  void UpdateVideoFrame(const media::TimeUnit& aMediaTime);
 
   void ResetDecode();
 
@@ -375,6 +388,7 @@ class ExternalEngineStateMachine final
   // starting running the engine.
   nsTArray<RefPtr<nsIRunnable>> mPendingTasks;
 
+  RefPtr<layers::Image> mVideoImage;
   bool mHasFatalError = false;
 
   // Set when the engine has been fully initialized (in OnEngineInitSuccess)
