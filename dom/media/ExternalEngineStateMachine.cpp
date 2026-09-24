@@ -1057,11 +1057,11 @@ void ExternalEngineStateMachine::OnRequestVideo() {
             if (mSecondaryVideoContainer.Ref()) {
               mSecondaryVideoContainer.Ref()->SetCurrentFrame(
                   mVideoDisplay, aVideo->mImage, TimeStamp::Now(),
-                  media::TimeUnit::Invalid(), aVideo->mTime);
+                  media::TimeUnit::Invalid(), aVideo->mTime, aVideo->mRotation);
             } else {
               mVideoFrameContainer->SetCurrentFrame(
                   mVideoDisplay, aVideo->mImage, TimeStamp::Now(),
-                  media::TimeUnit::Invalid(), aVideo->mTime);
+                  media::TimeUnit::Invalid(), aVideo->mTime, aVideo->mRotation);
             }
           },
           [this, self](const MediaResult& aError) {

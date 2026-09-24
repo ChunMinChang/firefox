@@ -134,7 +134,7 @@ nsresult HTMLVideoElement::CopyInnerTo(Element* aDest) {
 
     dstVideo->SetCurrentFrame(dstImage->GetSize(), dstImage, TimeStamp(),
                               media::TimeUnit::Invalid(),
-                              media::TimeUnit::Invalid());
+                              media::TimeUnit::Invalid(), images[0].mRotation);
   }
   return rv;
 }

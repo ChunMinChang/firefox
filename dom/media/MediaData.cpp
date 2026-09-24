@@ -246,9 +246,11 @@ static MediaResult ValidateBufferAndPicture(
 VideoData::VideoData(int64_t aOffset, const TimeUnit& aTime,
                      const TimeUnit& aDuration, bool aKeyframe,
                      const TimeUnit& aTimecode, IntSize aDisplay,
-                     layers::ImageContainer::FrameID aFrameID)
+                     layers::ImageContainer::FrameID aFrameID,
+                     Maybe<VideoRotation> aRotation)
     : MediaData(Type::VIDEO_DATA, aOffset, aTime, aDuration),
       mDisplay(aDisplay),
+      mRotation(aRotation),
       mFrameID(aFrameID),
       mSentToCompositor(false),
       mNextKeyFrameTime(TimeUnit::Invalid()) {

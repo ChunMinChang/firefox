@@ -13,6 +13,7 @@
 #include "VideoSink.h"
 
 #include "AudioDeviceInfo.h"
+#include "MediaData.h"
 #include "MediaQueue.h"
 #include "VideoUtils.h"
 #include "mozilla/IntegerPrintfMacros.h"
@@ -352,11 +353,12 @@ void VideoSink::Redraw(const VideoInfo& aInfo) {
     }
     video->MarkSentToCompositor();
     mContainer->SetCurrentFrame(video->mDisplay, video->mImage, now,
-                                media::TimeUnit::Invalid(), video->mTime);
+                                media::TimeUnit::Invalid(), video->mTime,
+                                video->mRotation);
     if (mSecondaryContainer) {
       mSecondaryContainer->SetCurrentFrame(video->mDisplay, video->mImage, now,
                                            media::TimeUnit::Invalid(),
-                                           video->mTime);
+                                           video->mTime, video->mRotation);
     }
     return;
   }
@@ -369,12 +371,12 @@ void VideoSink::Redraw(const VideoInfo& aInfo) {
       mContainer->GetImageContainer()->CreatePlanarYCbCrImage();
   mContainer->SetCurrentFrame(aInfo.mDisplay, blank, now,
                               media::TimeUnit::Invalid(),
-                              media::TimeUnit::Invalid());
+                              media::TimeUnit::Invalid(), Nothing());
 
   if (mSecondaryContainer) {
     mSecondaryContainer->SetCurrentFrame(aInfo.mDisplay, blank, now,
                                          media::TimeUnit::Invalid(),
-                                         media::TimeUnit::Invalid());
+                                         media::TimeUnit::Invalid(), Nothing());
   }
 }
 
@@ -485,6 +487,7 @@ void VideoSink::RenderVideoFrames(Span<const RefPtr<VideoData>> aFrames,
     img->mFrameID = frame->mFrameID;
     img->mProducerID = mProducerID;
     img->mMediaTime = frame->mTime;
+    img->mRotation = frame->mRotation;
 
     VSINK_LOG_V("playing video frame {} (id={:x}, vq-queued={}, clock={})",
                 frame->mTime.ToMicroseconds(), frame->mFrameID,

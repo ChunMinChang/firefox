@@ -4,6 +4,7 @@
 
 #include "VideoFrameContainer.h"
 
+#include "MediaInfo.h"
 #include "mozilla/Logging.h"
 
 #ifdef MOZ_WIDGET_ANDROID
@@ -77,7 +78,7 @@ static void NotifySetCurrent(Image* aImage) {
 void VideoFrameContainer::SetCurrentFrame(
     const gfx::IntSize& aIntrinsicSize, Image* aImage,
     const TimeStamp& aTargetTime, const media::TimeUnit& aProcessingDuration,
-    const media::TimeUnit& aMediaTime) {
+    const media::TimeUnit& aMediaTime, Maybe<VideoRotation> aRotation) {
   MOZ_LOG_FMT(
       gVideoFrameContainer, LogLevel::Debug,
       "SetCurrentFrame, processing duration={}us,pts={}",
@@ -88,8 +89,10 @@ void VideoFrameContainer::SetCurrentFrame(
 #endif
   AutoTArray<ImageContainer::NonOwningImage, 1> imageList;
   if (aImage) {
-    imageList.AppendElement(ImageContainer::NonOwningImage(
-        aImage, aTargetTime, ++mFrameID, 0, aProcessingDuration, aMediaTime));
+    NotNull<ImageContainer::NonOwningImage*> image = imageList.AppendElement(
+        ImageContainer::NonOwningImage(aImage, aTargetTime, ++mFrameID, 0,
+                                       aProcessingDuration, aMediaTime));
+    image->mRotation = aRotation;
   }
   MutexAutoLock lock(mMutex);
   SetCurrentFramesLocked(aIntrinsicSize, imageList);

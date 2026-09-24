@@ -2791,6 +2791,13 @@ void MediaFormatReader::ReturnOutput(MediaData* aData, TrackType aTrack) {
   } else if (aTrack == TrackInfo::kVideoTrack) {
     VideoData* videoData = aData->As<VideoData>();
 
+    // The latest rotation value comes from metadata read by the track demuxer,
+    // so add it to the frame from the decoder here.
+    videoData->mRotation =
+        Some(mVideo.GetCurrentInfo()->GetAsVideoInfo()->mRotation);
+
+    // These are the other way around, the latest values come from SPS data
+    // read by the decoder, so we update our values from the new frame.
     if (videoData->mDisplay != mInfo.mVideo.mDisplay) {
       LOG("change of video display size ({}x{}->{}x{})",
           mInfo.mVideo.mDisplay.width, mInfo.mVideo.mDisplay.height,

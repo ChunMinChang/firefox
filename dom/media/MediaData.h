@@ -497,6 +497,7 @@ class PlanarYCbCrImage;
 }  // namespace layers
 
 class VideoInfo;
+enum class VideoRotation;
 
 // Holds a decoded video frame, in YCbCr format. These are queued in the reader.
 class VideoData : public MediaData {
@@ -598,6 +599,7 @@ class VideoData : public MediaData {
   // will be scaled to this size. This is should be the picture region's
   // dimensions scaled with respect to its aspect ratio.
   const IntSize mDisplay;
+  Maybe<VideoRotation> mRotation;
 
   // This frame's image.
   RefPtr<Image> mImage;
@@ -609,7 +611,7 @@ class VideoData : public MediaData {
   VideoData(int64_t aOffset, const media::TimeUnit& aTime,
             const media::TimeUnit& aDuration, bool aKeyframe,
             const media::TimeUnit& aTimecode, IntSize aDisplay,
-            uint32_t aFrameID);
+            uint32_t aFrameID, Maybe<VideoRotation> aRotation = Nothing());
 
   nsCString ToString() const;
 
