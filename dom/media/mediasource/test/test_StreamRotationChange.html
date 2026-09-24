@@ -13,6 +13,11 @@
 
 "use strict";
 
+addMSEPrefs(
+  ["media.cloneElementVisually.testing", true],
+  ["media.dormant-on-pause-timeout-ms", -1]
+);
+
 const SEGMENT_DURATION = 0.6;
 const PORTRAIT = [240, 320];
 const LANDSCAPE = [320, 240];
@@ -70,11 +75,12 @@ const rotationCases = {
   },
 };
 
-function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
+function expectResizeEvents({ representations, playbackSizes, seeks = [] }, cloneVideo = false) {
   return runWithMSE(async (ms, video) => {
     const controller = new AbortController();
     const { signal } = controller;
     const resizeEvents = [];
+    let clone;
     video.addEventListener("error", () => {
       controller.abort(new Error(`Video error: ${video.error?.message}`));
     }, { signal });
@@ -84,6 +90,20 @@ function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
 
     const checkDimensions = (expected, label) => {
       isDeeply([video.videoWidth, video.videoHeight], expected, label);
+      if (clone) {
+        isDeeply([clone.videoWidth, clone.videoHeight], expected, `${label}: visual clone`);
+      }
+    };
+
+    const clonePausedFrame = async () => {
+      ok(video.paused, "Attach a visual clone while the source is paused");
+      if (clone) {
+        SpecialPowers.wrap(video).stopCloningElementVisually();
+        clone.remove();
+      }
+      clone = document.createElement("video");
+      document.body.appendChild(clone);
+      await SpecialPowers.wrap(video).cloneElementVisually(clone);
     };
 
     try {
@@ -111,6 +131,9 @@ function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
       if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         await rotationEvent(video, "loadeddata", signal);
       }
+      if (cloneVideo) {
+        await clonePausedFrame();
+      }
       checkDimensions(playbackSizes[0], "Dimensions of the first paused frame");
       await Promise.all([
         rotationEvent(video, "ended", signal),
@@ -123,7 +146,7 @@ function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
 
       video.pause();
       const expectedSizes = [...playbackSizes];
-      for (const [time, size] of seeks) {
+      for (const [index, [time, size]] of seeks.entries()) {
         await Promise.all([
           rotationEvent(video, "seeked", signal),
           Promise.resolve().then(() => { video.currentTime = time; }),
@@ -132,12 +155,20 @@ function expectResizeEvents({ representations, playbackSizes, seeks = [] }) {
         await new Promise(requestAnimationFrame);
         ok(video.paused, `Seeking to ${time} leaves playback paused`);
         checkDimensions(size, `Dimensions after paused seek to ${time}`);
+        if (cloneVideo && index === 0) {
+          await clonePausedFrame();
+          checkDimensions(size, "Dimensions after replacing the paused visual clone");
+        }
         if (size.some((dimension, index) => dimension !== expectedSizes.at(-1)[index])) {
           expectedSizes.push(size);
         }
       }
       isDeeply(resizeEvents, expectedSizes, "Playback and paused-seek resize history");
     } finally {
+      if (clone) {
+        SpecialPowers.wrap(video).stopCloningElementVisually();
+        clone.remove();
+      }
       controller.abort(new Error("Rotation test finished"));
       URL.revokeObjectURL(video.src);
       video.removeAttribute("src");
@@ -157,6 +188,21 @@ add_task(async function testChangeStreamRotationWithSizeChange() {
     await expectResizeEvents({ ...testCase, seeks: [] });
     await expectResizeEvents(testCase);
   }
+});
+
+add_task(async function testInitiallyRotatedVisualClone() {
+  await expectResizeEvents(rotationCases.initiallyRotated, true);
+});
+
+add_task(async function testRepresentationChangeWithVisualClone() {
+  await expectResizeEvents({
+    ...rotationCases.representationChange,
+    seeks: [[0.9, PORTRAIT], [0.3, PORTRAIT], [1.5, PORTRAIT]],
+  }, true);
+});
+
+add_task(async function testRotationOnlyWithVisualClone() {
+  await expectResizeEvents(rotationCases.rotationOnly, true);
 });
 
 </script>

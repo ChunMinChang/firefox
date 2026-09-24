@@ -3,6 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <initializer_list>
+#include <tuple>
 
 #include "ImageContainer.h"
 #include "MediaFormatReader.h"
@@ -10,12 +11,14 @@
 #include "MockMediaDataDemuxer.h"
 #include "MockMediaDecoderOwner.h"
 #include "PDMFactory.h"
+#include "PDMFactorySupport.h"
 #include "ReaderProxy.h"
 #include "TimeUnits.h"
 #include "VideoFrameContainer.h"
 #include "gtest/gtest.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/ScopeExit.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gtest/MozAssertions.h"
@@ -263,6 +266,132 @@ class TestMediaFormatReader : public ::testing::Test {
   RefPtr<MockVideoDataDecoder> mVideoDecoder;
   int mDecodedSampleCount = 0;
 };
+
+class DelayedRotationDecoder final : public MockVideoDataDecoder {
+ public:
+  DelayedRotationDecoder(const CreateDecoderParams& aParams, bool aRecyclable,
+                         uint32_t aLatency)
+      : MockVideoDataDecoder(aParams), mRecyclable(aRecyclable) {
+    SetLatencyFrameCount(aLatency);
+  }
+
+  bool SupportDecoderRecycling() const override { return mRecyclable; }
+
+  RefPtr<DecodePromise> Decode(MediaRawData* aSample) override {
+    EXPECT_FALSE(mNeedsFlush);
+    return MockVideoDataDecoder::Decode(aSample);
+  }
+
+  RefPtr<DecodePromise> Drain() override {
+    mNeedsFlush = true;
+    return MockVideoDataDecoder::Drain();
+  }
+
+  RefPtr<FlushPromise> Flush() override {
+    return MockVideoDataDecoder::Flush()->Then(
+        AbstractThread::GetCurrent(), __func__,
+        [self =
+             RefPtr{this}](const FlushPromise::ResolveOrRejectValue& aResult) {
+          self->mNeedsFlush = false;
+          return FlushPromise::CreateAndResolve(true, __func__);
+        });
+  }
+
+ private:
+  ~DelayedRotationDecoder() override = default;
+  const bool mRecyclable;
+  bool mNeedsFlush = false;
+};
+
+class VideoRotationConfigurationTest
+    : public TestMediaFormatReader,
+      public testing::WithParamInterface<std::tuple<bool, uint32_t>> {
+ protected:
+  void SetUp() override {
+    mHadRecyclePref =
+        Preferences::HasUserValue("media.decoder.recycle.enabled");
+    mRecyclePref = Preferences::GetBool("media.decoder.recycle.enabled");
+    Preferences::SetBool("media.decoder.recycle.enabled", true);
+    TestMediaFormatReader::SetUp();
+  }
+
+  void TearDown() override {
+    TestMediaFormatReader::TearDown();
+    if (mHadRecyclePref) {
+      Preferences::SetBool("media.decoder.recycle.enabled", mRecyclePref);
+    } else {
+      Preferences::ClearUser("media.decoder.recycle.enabled");
+    }
+  }
+
+ private:
+  bool mHadRecyclePref = false;
+  bool mRecyclePref = false;
+};
+
+TEST_P(VideoRotationConfigurationTest, DelayedFramesKeepTheirConfiguration) {
+  auto restoreSupport = MakeScopeExit([] { PDMFactorySupport::Invalidate(); });
+  PDMFactory::AutoForcePDM autoForcePDM(mPdm);
+  PDMFactorySupport::Invalidate();
+  auto shutdown = MakeScopeExit([&] { FinishShutdown(); });
+  const VideoRotation rotations[] = {VideoRotation::kDegree_0,
+                                     VideoRotation::kDegree_90,
+                                     VideoRotation::kDegree_0};
+  {
+    InSequence sequence;
+    for (uint32_t stream = 0; stream < 3; ++stream) {
+      auto info = mTrackDemuxer->GetInfo();
+      info->GetAsVideoInfo()->mRotation = rotations[stream];
+      RefPtr trackInfo = new TrackInfoSharedPtr(*info, stream + 1);
+      for (uint32_t frame = 0; frame < 2; ++frame) {
+        const TimeUnit time(CheckedInt64(stream) * 2 + frame, 30);
+        EXPECT_CALL(*mTrackDemuxer, MockGetSamples).WillOnce([trackInfo, time] {
+          auto sample = MakeRawSample(time, TimeUnit(1, 30), true);
+          sample->mTimecode = time;
+          sample->mTrackInfo = trackInfo;
+          return ResolveOneSample(std::move(sample));
+        });
+      }
+    }
+    EXPECT_CALL(*mTrackDemuxer, MockGetSamples).WillRepeatedly([] {
+      return SamplesPromise::CreateAndReject(NS_ERROR_DOM_MEDIA_END_OF_STREAM,
+                                             __func__);
+    });
+  }
+
+  EXPECT_CALL(*mPdm, CreateVideoDecoder)
+      .Times(testing::AtLeast(1))
+      .WillRepeatedly([](const CreateDecoderParams& aParams) {
+        return do_AddRef(new DelayedRotationDecoder(
+            aParams, std::get<0>(GetParam()), std::get<1>(GetParam())));
+      });
+
+  auto metadata = WaitFor(mProxy->ReadMetadata());
+  ASSERT_TRUE(metadata.isOk())
+  << metadata.inspectErr().Description().get();
+  for (uint32_t frame = 0; frame < 6; ++frame) {
+    SCOPED_TRACE(frame);
+    auto result = WaitFor(mProxy->RequestVideoData(TimeUnit::Zero(), false));
+    ASSERT_TRUE(result.isOk())
+    << result.inspectErr().Description().get();
+    RefPtr<VideoData> output = result.unwrap();
+    EXPECT_EQ(output->mTime, TimeUnit(frame, 30));
+    EXPECT_EQ(output->mDisplay, gfx::IntSize(640, 360));
+    EXPECT_EQ(output->mRotation, Some(rotations[frame / 2]));
+  }
+  auto eos = WaitFor(mProxy->RequestVideoData(TimeUnit::Zero(), false));
+  ASSERT_TRUE(eos.isErr());
+  EXPECT_EQ(eos.inspectErr().Code(), NS_ERROR_DOM_MEDIA_END_OF_STREAM);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    DecoderRecycling, VideoRotationConfigurationTest,
+    testing::Combine(testing::Bool(), testing::Values(0u, 1u)),
+    [](const testing::TestParamInfo<std::tuple<bool, uint32_t>>& aInfo) {
+      return std::string(std::get<0>(aInfo.param) ? "Recyclable"
+                                                  : "NonRecyclable") +
+             "Latency" + std::to_string(std::get<1>(aInfo.param));
+    });
 
 // MP4 edit lists use a positive media time to map decoder pre-roll at the
 // matching negative offset to currentTime 0.
