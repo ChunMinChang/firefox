@@ -248,7 +248,8 @@ export class DebugSession {
 
     // Bug 2041407: garbage collected scripts will not be returned here.
     // They should be listed and resurrected.
-    for (const { url } of this.#dbg.findScripts()) {
+    for (const script of this.#dbg.findScripts()) {
+      const url = this.#getScriptURL(script);
       if (url) {
         urls.add(url);
       }
@@ -424,10 +425,19 @@ export class DebugSession {
     return this.#pausedFrames[this.#pausedFrames.length - 1];
   }
 
+  #getScriptURL(script) {
+    // Debugger.Script.prototype.url only supports JS scripts.
+    return script.format === "wasm" ? script.source.url : script.url;
+  }
+
   #getFrameLocation(frame) {
     const { offset, script } = frame;
     const { columnNumber, lineNumber } = script.getOffsetMetadata(offset);
-    return { column: columnNumber, line: lineNumber, url: script.url };
+    return {
+      column: columnNumber,
+      line: lineNumber,
+      url: this.#getScriptURL(script),
+    };
   }
 
   #hasMoved(frame) {
@@ -607,7 +617,7 @@ export class DebugSession {
     // inner function scripts.
     const scripts = this.#collectScriptTree(script);
     for (const breakpointLocation of this.#breakpointLocationMap.values()) {
-      if (breakpointLocation.url === script.url) {
+      if (breakpointLocation.url === this.#getScriptURL(script)) {
         this.#setBreakpointOnScripts(scripts, breakpointLocation);
       }
     }
