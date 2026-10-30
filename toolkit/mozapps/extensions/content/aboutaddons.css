@@ -177,6 +177,7 @@ aboutaddons-themes-mode {
 
 aboutaddons-themes-picker {
   display: block;
+  margin-block-end: var(--space-large);
 
   @media not -moz-pref("browser.nova.enabled") {
     display: none;
@@ -892,5 +893,25 @@ section:not(:empty) ~ :is(#empty-addons-message, #empty-addons-promo) {
      * padding variable to 0 to align the addons-promo text with the theme
      * name in the theme cards right above it. */
     --addons-promo-text-padding-inline: 0;
+  }
+
+  addon-list[type="theme"] > section,
+  recommended-themes-section > section {
+    display: block;
+    background-color: var(--card-background-color);
+    border-radius: var(--card-border-radius);
+    border: var(--card-border);
+    margin-block-end: var(--space-large);
+    padding-inline: var(--space-large);
+    max-width: var(--page-main-content-width);
+
+    .list-section-heading,
+    .recommended-heading {
+      padding-block-start: var(--space-small);
+    }
+
+    .card {
+      border-color: var(--card-border-color);
+    }
   }
 }

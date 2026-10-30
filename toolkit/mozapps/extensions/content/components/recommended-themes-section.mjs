@@ -14,14 +14,17 @@ class RecommendedThemesSection extends RecommendedSection {
   static get markup() {
     return `
       <template>
-        <h2
-          data-l10n-id="recommended-themes-heading"
-          class="header-name recommended-heading"
-        ></h2>
-        <recommended-addon-list
-          type="theme"
-          hide-installed
-        ></recommended-addon-list>
+        <section>
+          <h2
+            data-l10n-id="recommended-themes-heading"
+            class="header-name recommended-heading"
+          ></h2>
+          <recommended-addon-list
+            type="theme"
+            hide-installed
+          >
+          </recommended-addon-list>
+        </section>
         <footer is="recommended-themes-footer" class="view-footer"></footer>
       </template>
     `;
