@@ -12155,7 +12155,9 @@ static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
     if (!JS_InitReflectParse(cx, glob)) {
       return nullptr;
     }
-    if (!JS_DefineDebuggerObject(cx, glob)) {
+    // With --fuzzing-safe the Debugger API is only available through the debug
+    // session module. See the SMDOC comment in DebugSession.cpp.
+    if (!fuzzingSafe && !JS_DefineDebuggerObject(cx, glob)) {
       return nullptr;
     }
     if (!JS_DefineFunctionsWithHelp(cx, glob, shell_functions) ||
