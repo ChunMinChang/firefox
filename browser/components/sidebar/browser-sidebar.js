@@ -2459,6 +2459,7 @@ var SidebarController = {
     let previousID = this.currentID;
     let wasLauncherVisible = this._state.launcherVisible;
     let wasLauncherExpanded = this._state.launcherExpanded;
+    let wasContentCornerRounded = this._isContentCornerRounded();
     let transition = document.startViewTransition(async () => {
       this._inViewTransitionUpdate = true;
       try {
@@ -2487,6 +2488,25 @@ var SidebarController = {
       } else if (this.isOpen && this.currentID != previousID) {
         transition.types.add("panel-switch");
       }
+      let contentCornerRounded = this._isContentCornerRounded();
+      if (contentCornerRounded != wasContentCornerRounded) {
+        transition.types.add(
+          contentCornerRounded
+            ? "content-corner-round"
+            : "content-corner-square"
+        );
+        if (this._isOppositeContentCornerRounded()) {
+          transition.types.add("content-corner-opposite-round");
+        }
+        // The view transition pseudo-elements inherit from the root, while
+        // themes such as the Smart Window one set the separator color lower.
+        document.documentElement.style.setProperty(
+          "--sidebar-content-separator-color",
+          getComputedStyle(this.contentArea).getPropertyValue(
+            "--chrome-content-separator-color"
+          )
+        );
+      }
       await this.sidebarMain.updateComplete;
     });
     this._activeViewTransition = transition;
@@ -2495,11 +2515,45 @@ var SidebarController = {
     return transition.finished.finally(() => {
       if (this._activeViewTransition == transition) {
         this._activeViewTransition = null;
+        document.documentElement.style.removeProperty(
+          "--sidebar-content-separator-color"
+        );
         if (document.documentElement.hasAttribute("sidebar-expand-on-hover")) {
           this._reconcileHoverState();
         }
       }
     });
+  },
+
+  /**
+   * Whether content-area.css rounds the corner of the content area that faces
+   * the sidebar, which it does while the launcher or a panel is next to it.
+   * An open AI window sidebar also keeps the end corner rounded. Split view
+   * panels are always rounded.
+   *
+   * @returns {boolean}
+   */
+  _isContentCornerRounded() {
+    const contentArea = document.getElementById("tabbrowser-tabbox");
+    return (
+      contentArea.hasAttribute("sidebar-shown") ||
+      contentArea.hasAttribute("sidebar-panel-open") ||
+      (contentArea.hasAttribute("sidebar-positionend") &&
+        contentArea.hasAttribute("ai-window-open")) ||
+      !!gBrowser.selectedBrowser.closest(".split-view-panel")
+    );
+  },
+
+  /**
+   * Whether content-area.css rounds the corner of the content area opposite
+   * the sidebar, which it does while the AI window sidebar is docked there.
+   *
+   * @returns {boolean}
+   */
+  _isOppositeContentCornerRounded() {
+    return document
+      .getElementById("tabbrowser-tabbox")
+      .hasAttribute("ai-window-open");
   },
 
   debouncedMouseEnter() {
