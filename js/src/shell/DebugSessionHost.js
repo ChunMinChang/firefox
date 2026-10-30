@@ -215,6 +215,12 @@
       case "setBreakpoints":
         session.setBreakpoints(checkBreakpoints(arg));
         return undefined;
+      case "setPauseOnExceptions":
+        if (typeof arg !== "string") {
+          throw new HostError("setPauseOnExceptions expects a mode string");
+        }
+        session.setPauseOnExceptions(arg);
+        return undefined;
       case "setPauseActions":
         entry.actions = checkActions(arg);
         return undefined;

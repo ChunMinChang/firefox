@@ -55,6 +55,7 @@ export class DebugSession {
   #host;
   #pausedFrames;
   #previousPauseLocation;
+  #pauseOnExceptions;
 
   /**
    * @param {object} global
@@ -76,6 +77,9 @@ export class DebugSession {
 
     this.#dbg = null;
     this.#previousPauseLocation = null;
+
+    // "none", "uncaught" or "all".
+    this.#pauseOnExceptions = "none";
 
     this.#breakpointHandler = {
       hit: this.#pauseAtFrame,
@@ -111,6 +115,7 @@ export class DebugSession {
     this.#dbg = this.#host.createDebugger();
     this.#dbg.onNewScript = this.#onNewScript;
     this.#dbg.onDebuggerStatement = this.#onDebuggerStatement;
+    this.#updateExceptionHook();
     let added = true;
     try {
       this.#dbg.addDebuggee(this.#global);
@@ -143,6 +148,7 @@ export class DebugSession {
 
     this.#dbg.onNewScript = undefined;
     this.#dbg.onDebuggerStatement = undefined;
+    this.#dbg.onExceptionUnwind = undefined;
     this.#dbg = null;
 
     for (const breakpointLocation of this.#breakpointLocationMap.values()) {
@@ -192,6 +198,25 @@ export class DebugSession {
         }
       }
     }
+  }
+
+  /**
+   * Set whether to pause when an exception is thrown. An exception pauses in
+   * every frame it unwinds through.
+   *
+   * @param {string} mode
+   *     "none", "uncaught" (only exceptions that no try block in the debuggee
+   *     frames on the stack will catch) or "all".
+   */
+  setPauseOnExceptions(mode) {
+    if (!["none", "uncaught", "all"].includes(mode)) {
+      throw this.#host.createError(
+        "invalid-argument",
+        `Invalid pause on exceptions mode: ${mode}`
+      );
+    }
+    this.#pauseOnExceptions = mode;
+    this.#updateExceptionHook();
   }
 
   getScriptSource(scriptUrl) {
@@ -452,6 +477,46 @@ export class DebugSession {
     };
   }
 
+  #updateExceptionHook() {
+    if (this.#dbg) {
+      this.#dbg.onExceptionUnwind =
+        this.#pauseOnExceptions === "none"
+          ? undefined
+          : this.#onExceptionUnwind;
+    }
+  }
+
+  #isCaught(frame) {
+    for (let f = frame; f; f = f.older) {
+      try {
+        if (f.script.isInCatchScope(f.offset)) {
+          return true;
+        }
+      } catch (e) {
+        // Wasm frames don't support isInCatchScope.
+      }
+    }
+    return false;
+  }
+
+  // Debugger handler function.
+  // See https://firefox-source-docs.mozilla.org/devtools-user/debugger-api/debugger/index.html#debugger-handler-functions
+  // for signature and return value.
+  #onExceptionUnwind = (frame, value) => {
+    // Don't pause for exceptions thrown by code evaluated during a pause.
+    if (this.paused) {
+      return undefined;
+    }
+
+    if (this.#pauseOnExceptions === "uncaught" && this.#isCaught(frame)) {
+      return undefined;
+    }
+
+    return this.#pauseAtFrame(frame, {
+      exception: this.#serializeVariable(value),
+    });
+  };
+
   // Debugger handler function.
   // See https://firefox-source-docs.mozilla.org/devtools-user/debugger-api/debugger/index.html#debugger-handler-functions
   // for signature and return value.
@@ -551,7 +616,7 @@ export class DebugSession {
   // Debugger handler function.
   // See https://firefox-source-docs.mozilla.org/devtools-user/debugger-api/debugger/index.html#debugger-handler-functions
   // for signature and return value.
-  #pauseAtFrame = frame => {
+  #pauseAtFrame = (frame, details = {}) => {
     const { url, line, column } = this.#getFrameLocation(frame);
     const callFrames = this.#buildCallFrames(frame);
     const depthAtThisPause = this.#pausedFrames.length + 1;
@@ -566,7 +631,7 @@ export class DebugSession {
       global: this.#dbg.makeGlobalObjectReference(this.#global),
     });
 
-    this.#host.onPaused({ url, line, column, callFrames });
+    this.#host.onPaused({ url, line, column, callFrames, ...details });
 
     try {
       this.#pausedFrames.push(frame);

@@ -10133,6 +10133,7 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "  - enable, disable: start or stop debugging the session's global.\n"
 "  - destroy: end the session.\n"
 "  - setBreakpoints: arg is a list of {id, url, line, column}.\n"
+"  - setPauseOnExceptions: arg is none, uncaught or all.\n"
 "  - setPauseActions: arg is a list of actions. Each pause takes actions from\n"
 "        the list until a resume or step action.\n"
 "  - listScripts: return the URLs of the debuggee's scripts.\n"
