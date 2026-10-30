@@ -108,7 +108,7 @@ use.counter:
     send_in_pings:
       - use-counters
 
-# Total of 2686 use counter metrics (excludes denominators).
+# Total of 2688 use counter metrics (excludes denominators).
 # Total of 441 'page' use counters.
 use.counter.page:
   svgsvgelement_getelementbyid:
@@ -20727,7 +20727,7 @@ use.counter.deprecated_ops.doc:
     send_in_pings:
       - use-counters
 
-# Total of 737 'CSS (page)' use counters.
+# Total of 738 'CSS (page)' use counters.
 use.counter.css.page:
   css_align_items:
     type: counter
@@ -25068,6 +25068,23 @@ use.counter.css.page:
     type: counter
     description: >
       Whether a page used the CSS property tab-size.
+      Compare against `use.counter.top_level_content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  css_text_autospace_size:
+    type: counter
+    description: >
+      Whether a page used the CSS property text-autospace-size.
       Compare against `use.counter.top_level_content_documents_destroyed`
       to calculate the rate.
     bugs:
@@ -33258,7 +33275,7 @@ use.counter.css.page:
     send_in_pings:
       - use-counters
 
-# Total of 737 'CSS (document)' use counters.
+# Total of 738 'CSS (document)' use counters.
 use.counter.css.doc:
   css_align_items:
     type: counter
@@ -37599,6 +37616,23 @@ use.counter.css.doc:
     type: counter
     description: >
       Whether a document used the CSS property tab-size.
+      Compare against `use.counter.content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  css_text_autospace_size:
+    type: counter
+    description: >
+      Whether a document used the CSS property text-autospace-size.
       Compare against `use.counter.content_documents_destroyed`
       to calculate the rate.
     bugs:
