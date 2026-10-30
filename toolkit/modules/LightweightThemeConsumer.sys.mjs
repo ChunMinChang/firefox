@@ -495,13 +495,8 @@ LightweightThemeConsumer.prototype = {
       return null;
     })();
 
-    // NOTE(emilio): The !parent check shouldn't be needed ideally, but
-    // apparently Thunderbird uses this code on child frames?
-    // See bug 1752815.
-    if (!this._win.browsingContext.parent) {
-      this._win.browsingContext.prefersColorSchemeOverride =
-        toolbarColorScheme || "none";
-    }
+    this._ensureColorSchemeMetaTag().content =
+      toolbarColorScheme || "light dark";
     if (updateGlobalThemeData) {
       function colorSchemeToThemePref(scheme) {
         switch (scheme) {
@@ -534,6 +529,20 @@ LightweightThemeConsumer.prototype = {
     Services.ppmm.sharedData.flush();
 
     this._win.dispatchEvent(new CustomEvent("windowlwthemeupdate"));
+  },
+
+  _ensureColorSchemeMetaTag() {
+    let doc = this._doc;
+    let existing = doc.getElementById("color-scheme-meta");
+    if (existing) {
+      return existing;
+    }
+    let meta = doc.createElement("meta");
+    meta.id = "color-scheme-meta";
+    meta.name = "color-scheme";
+    meta.content = "light dark";
+    (doc.head || doc.documentElement).appendChild(meta);
+    return meta;
   },
 
   _setExperiment(hasTheme, experiment, properties) {
