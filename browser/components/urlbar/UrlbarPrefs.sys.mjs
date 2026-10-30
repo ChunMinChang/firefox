@@ -204,6 +204,12 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // general group with plain history results.
   ["suggest.semanticHistory.separateGroup", false],
 
+  // Whether a semantic history search starting with an origin or URL, like
+  // "example.com some topic" or "example.com/some-topic", only searches pages
+  // in that domain and its subdomains, using the rest of the search string as
+  // the query.
+  ["suggest.semanticHistory.domainScopedSearch", false],
+
   // Feature gate pref for important-dates suggestions in the urlbar.
   ["importantDates.featureGate", false],
 
