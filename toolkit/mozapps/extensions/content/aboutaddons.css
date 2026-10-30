@@ -853,6 +853,28 @@ section:not(:empty) ~ :is(#empty-addons-message, #empty-addons-promo) {
   font-weight: var(--font-weight-bold);
 }
 
+addon-list[type="theme"] > moz-card {
+  margin-block-end: var(--space-large);
+  /* Remove padding at the block start of the moz-card,
+   * visible when the accordion moz-card header is hovered */
+  --card-cover-image-padding: 0;
+
+  max-width: var(--page-main-content-width);
+}
+
+:is(addon-list[type="theme"], recommended-themes-section > moz-card) .card {
+  --card-border: var(--border-width) solid var(--border-color);
+  --card-box-shadow: none;
+  --card-box-shadow-hover: none;
+}
+
+recommended-themes-section > moz-card {
+  margin-block-end: var(--space-large);
+  /* Remove padding at the block start of the moz-card,
+   * visible when the accordion moz-card header is hovered */
+  --card-cover-image-padding: 0;
+}
+
 /* Position the badged dot in the top-end (right in ltr, left in rtl)
  * corner of the badged category icon. */
 @media (max-width: 950px) {
@@ -893,31 +915,5 @@ section:not(:empty) ~ :is(#empty-addons-message, #empty-addons-promo) {
      * padding variable to 0 to align the addons-promo text with the theme
      * name in the theme cards right above it. */
     --addons-promo-text-padding-inline: 0;
-  }
-
-  addon-list[type="theme"] > section {
-    display: block;
-    background-color: var(--card-background-color);
-    border-radius: var(--card-border-radius);
-    border: var(--card-border);
-    margin-block-end: var(--space-large);
-    padding-inline: var(--space-large);
-    max-width: var(--page-main-content-width);
-
-    .list-section-heading,
-    .recommended-heading {
-      padding-block-start: var(--space-small);
-    }
-
-    .card {
-      border-color: var(--card-border-color);
-    }
-  }
-
-  recommended-themes-section > moz-card {
-    margin-block-end: var(--space-large);
-    /* Remove padding at the block start of the moz-card,
-     * visible when the accordion moz-card header is hovered */
-    --card-cover-image-padding: 0;
   }
 }

@@ -390,8 +390,10 @@ permissions-addon-button = Permissions
 extension-enabled-heading = Enabled
 extension-disabled-heading = Disabled
 
-theme-enabled-heading = Enabled
-theme-disabled-heading2 = Saved Themes
+theme-enabled-heading2 =
+  .heading = Active Theme
+theme-disabled-heading3 =
+  .heading = Saved Themes
 
 plugin-enabled-heading = Enabled
 plugin-disabled-heading = Disabled

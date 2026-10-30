@@ -677,6 +677,50 @@ add_task(async function testThemeList() {
   await closeView(win);
 });
 
+add_task(async function testDisabledThemesCardExpandedState() {
+  const PREF =
+    "extensions.htmlaboutaddons.themes-listview.disabled-themes-expanded";
+  await SpecialPowers.pushPrefEnv({ clear: [[PREF]] });
+
+  let win = await loadInitialView("theme");
+  let doc = win.document;
+  let enabledSection = getSection(doc, "theme-enabled-section");
+  let disabledSection = getSection(doc, "theme-disabled-section");
+  let disabledCard = () => disabledSection.querySelector("addon-card");
+
+  isnot(
+    enabledSection.getAttribute("type"),
+    "accordion",
+    "Enabled themes card is not an accordion"
+  );
+  is(
+    disabledSection.getAttribute("type"),
+    "accordion",
+    "Disabled themes card is an accordion"
+  );
+  await disabledSection.updateComplete;
+  ok(!disabledSection.expanded, "Disabled themes card is collapsed by default");
+  ok(
+    !disabledCard().checkVisibility(),
+    "Disabled themes are hidden when collapsed"
+  );
+
+  let toggled = BrowserTestUtils.waitForEvent(disabledSection, "toggle");
+  disabledSection.detailsEl.open = true;
+  await toggled;
+  ok(Services.prefs.getBoolPref(PREF, false), "Expanding updates the pref");
+  ok(disabledCard().checkVisibility(), "Disabled themes are visible");
+
+  await switchView(win, "extension");
+  await switchView(win, "theme");
+  disabledSection = getSection(win.document, "theme-disabled-section");
+  await disabledSection.updateComplete;
+  ok(disabledSection.expanded, "Disabled themes card is still expanded");
+
+  await closeView(win);
+  await SpecialPowers.popPrefEnv();
+});
+
 add_task(async function testBuiltInThemeButtons() {
   let win = await loadInitialView("theme");
   let doc = win.document;
@@ -942,13 +986,21 @@ add_task(async function testSectionHeadingKeys() {
 
     for (let status of ["enabled", "disabled"]) {
       let section = getSection(doc, `${type}-${status}-section`);
-      let el = section?.querySelector(".list-section-heading");
-      isnot(el, null, `Should have ${status} heading for ${type} section`);
-      is(
-        el && doc.l10n.getAttributes(el).id,
-        win.getL10nIdMapping(`${type}-${status}-heading`),
-        `Should have correct ${status} heading for ${type} section`
-      );
+      if (type === "theme") {
+        Assert.deepEqual(
+          section && doc.l10n.getAttributes(section).id,
+          win.getL10nIdMapping(`${type}-${status}-heading`),
+          `Should have correct ${status} heading for ${type} section`
+        );
+      } else {
+        let el = section?.querySelector(".list-section-heading");
+        isnot(el, null, `Should have ${status} heading for ${type} section`);
+        is(
+          el && doc.l10n.getAttributes(el).id,
+          win.getL10nIdMapping(`${type}-${status}-heading`),
+          `Should have correct ${status} heading for ${type} section`
+        );
+      }
     }
 
     await closeView(win);
