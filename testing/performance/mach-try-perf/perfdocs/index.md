@@ -99,6 +99,12 @@ push arguments:
   --no-push             Do not push to try as a result of running this command (if specified this command will only print
                         calculated task selection info and not change files).
 
+preset arguments:
+  --save SAVE           Save selection for future use with --preset.
+  --preset PRESET       Load a saved selection.
+  --list-presets        List available preset selections.
+  --edit-presets        Edit the preset file.
+
 task configuration arguments:
   --artifact            Force artifact builds where possible.
   --no-artifact         Disable artifact builds even if being used locally.
@@ -243,6 +249,10 @@ To run all the tests that triggered a given alert, use `./mach try perf --alert 
 Using the `--tests` option, you can run all tasks that run a specific test. This is based on the test name that is used in the command that runs in the task. For Raptor, this is the test specified by `--test`. For Talos, it can either be a specific test in a suite like `tp5n` from `xperf`, or the suite `xperf` can be specified. For AWSY though, there are no specific tests that can be selected so the only option to select AWSY tests is to specify `AWSY` as the test.
 
 If it's used with `--alert <NUM>`, only the tasks that run the specific test will be run on try. If it's used with `--show-all` or `--full`, you will only see the tasks that run the specific test in the fuzzy interface. Finally, if it's used without either of those, then categories of the tests that were specified will be displayed in the fuzzy interface. For example, if `--tests amazon` is used, then categories like `amazon linux firefox` or `amazon desktop` will be displayed.
+
+## Presets
+
+`./mach try perf` supports {doc}`presets </tools/try/presets>`, including fuzzy presets. These select the same tasks as `./mach try fuzzy --preset <name>` (in `--show-all` mode), but push both the base revision and your changes for comparison. Fuzzy options that the perf selector doesn't support result in an error.
 
 ## Chrome
 
