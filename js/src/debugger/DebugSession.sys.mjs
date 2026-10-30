@@ -339,7 +339,7 @@ export class DebugSession {
       if (env.type === "declarative" && env.scopeKind != null) {
         const scope = {
           type: env.scopeKind,
-          variables: {},
+          variables: Object.create(null),
         };
 
         const names = env.names();
