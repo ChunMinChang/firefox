@@ -42530,7 +42530,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
   - ❌
   - ❌
 * - **browsertime-tp6m-webextensions-fenix-amazon-search**
-  - ✅
+  - ❌
   - ❌
   - ❌
   - ❌
