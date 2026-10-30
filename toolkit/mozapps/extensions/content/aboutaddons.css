@@ -895,8 +895,7 @@ section:not(:empty) ~ :is(#empty-addons-message, #empty-addons-promo) {
     --addons-promo-text-padding-inline: 0;
   }
 
-  addon-list[type="theme"] > section,
-  recommended-themes-section > section {
+  addon-list[type="theme"] > section {
     display: block;
     background-color: var(--card-background-color);
     border-radius: var(--card-border-radius);
@@ -913,5 +912,12 @@ section:not(:empty) ~ :is(#empty-addons-message, #empty-addons-promo) {
     .card {
       border-color: var(--card-border-color);
     }
+  }
+
+  recommended-themes-section > moz-card {
+    margin-block-end: var(--space-large);
+    /* Remove padding at the block start of the moz-card,
+     * visible when the accordion moz-card header is hovered */
+    --card-cover-image-padding: 0;
   }
 }
